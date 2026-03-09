@@ -1,0 +1,1 @@
+echo hacked > /etc/test

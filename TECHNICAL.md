@@ -311,55 +311,193 @@ enum LogLevel {
 | Landlock | ✅ (5.13+) | ❌ (kernel 5.10) |
 | rlimits | ✅ | ✅ |
 | Python sandbox | ✅ | ✅ |
+| Node.js sandbox | ✅ | ✅ |
+| LD_PRELOAD | ✅ | ✅ |
+| Source scanner | ✅ | ✅ |
 | VPC isolation | N/A | ✅ |
 
 ### Attack Defense by Environment
 
-| Attack Category | Userspace | Lambda+Python | Lambda+Other |
-|-----------------|:---------:|:-------------:|:------------:|
-| **Network** |
-| TCP/UDP/DNS | ✅ seccomp | ⚠️ import hook | ❌ VPC only |
-| Reverse shell | ✅ seccomp | ⚠️ import hook | ❌ VPC only |
-| **Process** |
-| fork/clone | ✅ seccomp | ✅ import hook | ❌ undefended |
-| subprocess | ✅ seccomp | ✅ import hook | ❌ undefended |
-| exec | ✅ seccomp | ✅ import hook | ❌ undefended |
-| **Filesystem** |
-| Read sensitive files | ✅ Landlock/strict | ✅ restricted open | ❌ undefended |
-| Write arbitrary | ✅ Landlock/strict | ✅ restricted open | ❌ undefended |
-| Symlink/hardlink | ✅ seccomp | ✅ no os module | ❌ undefended |
-| **Low-level** |
-| ptrace | ✅ seccomp | ✅ no ctypes | ❌ undefended |
-| Direct syscall | ✅ seccomp | ✅ no ctypes | ❌ undefended |
-| mmap exploit | ✅ seccomp | ✅ no mmap | ❌ undefended |
-| io_uring | ✅ seccomp | ✅ blocked | ❌ undefended |
-| bpf | ✅ seccomp | ✅ blocked | ❌ undefended |
-| **Resources** |
-| CPU exhaustion | ✅ RLIMIT_CPU | ✅ RLIMIT_CPU | ✅ RLIMIT_CPU |
-| Memory bomb | ✅ RLIMIT_AS | ✅ RLIMIT_AS | ✅ RLIMIT_AS |
-| Disk filling | ✅ RLIMIT_FSIZE | ✅ RLIMIT_FSIZE | ✅ RLIMIT_FSIZE |
-| Infinite loop | ✅ timeout | ✅ timeout | ✅ timeout |
-| **Info leak** |
-| Environment vars | ✅ clean-env | ✅ clean-env | ✅ clean-env |
-| /proc | ⚠️ readable | ⚠️ readable | ⚠️ readable |
+| Attack | Userspace | Lambda+Py | Lambda+Node | Lambda+Preload | Lambda Only |
+|--------|:---------:|:---------:|:-----------:|:--------------:|:-----------:|
+| Network exfiltration | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Reverse shell | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Fork bomb | ✅ | ✅ | ✅ | ✅ | ⚠️ |
+| subprocess/exec | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Memory exhaustion | ✅ | ✅ | ✅ | ✅ | ✅ |
+| CPU exhaustion | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Disk filling | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Infinite loop | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Read sensitive files | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Write outside /tmp | ✅ | ✅ | ✅ | ✅ | ✅ |
+| ptrace/debugging | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Symlink attacks | ✅ | ✅ | ✅ | ⚠️ | ❌ |
+| dlopen/FFI | ✅ | ✅ | ✅ | ⚠️ | ❌ |
+| eval/exec (dynamic) | N/A | ✅ | ✅ | N/A | ❌ |
+| Direct syscall (asm) | ✅ | ⚠️ | ⚠️ | ⚠️ | ❌ |
+| Sandbox escape | ✅ | ⚠️ | ⚠️ | N/A | N/A |
+| /proc info leak | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ❌ |
 
-### Lambda Non-Python: Unmitigated Risks
+Legend: ✅ Defended | ⚠️ Partial | ❌ Not defended | N/A Not applicable
 
-When running non-Python code on Lambda without kernel-level sandboxing:
+**Lambda+Preload** = LD_PRELOAD + source scanner + dynamic linking (for C/C++/Rust/Go)
 
-| Risk | Attack Vector | Impact | Mitigation |
-|------|---------------|--------|------------|
-| **Data Exfiltration** | `curl`, `wget`, raw sockets | Secrets leaked | VPC (no NAT) |
-| **Reverse Shell** | `bash -i >& /dev/tcp/...` | Full control | VPC (no NAT) |
-| **Credential Theft** | `cat /proc/self/environ` | AWS keys exposed | Minimal IAM role |
-| **Lateral Movement** | Port scanning VPC | Attack other services | Security groups |
-| **Cryptojacking** | Download & run miner | Resource abuse | VPC + short timeout |
-| **Persistence** | Write to /tmp, /dev/shm | Survive between calls | Lambda cleans /tmp |
+### Defense Technologies
 
-### Recommended Lambda Configuration
+| Attack | Userspace | Lambda+Py/Node | Lambda+Preload | Lambda Only |
+|--------|-----------|----------------|----------------|-------------|
+| Network | seccomp | import/module block | LD_PRELOAD | ❌ use VPC |
+| Fork | seccomp | import/module block | LD_PRELOAD | Lambda limit |
+| Memory | rlimit | rlimit | rlimit | Lambda config |
+| CPU/timeout | rlimit | rlimit | rlimit | Lambda timeout |
+| Disk | rlimit | rlimit | rlimit | /tmp 512MB |
+| File read | Landlock/strict | restricted open() | LD_PRELOAD | ❌ |
+| File write | Landlock/strict | restricted open() | LD_PRELOAD | read-only rootfs |
+| ptrace | seccomp | no ctypes/ffi | Firecracker | Firecracker |
+| Symlink | seccomp | no os module | ⚠️ partial | ❌ |
+| FFI/dlopen | seccomp | blocked imports | source scanner | ❌ |
+| Direct syscall | seccomp | ⚠️ scanner | ⚠️ scanner | ❌ |
+
+## Language Sandboxes
+
+### Python Sandbox (lang/python/sandbox.py)
+
+**Mechanism:**
+- Import hook blocks dangerous modules
+- Restricted builtins (no exec/eval/compile/input)
+- Restricted open() only allows /tmp
+
+**Blocked modules:**
+```
+socket, ssl, requests, urllib, http
+subprocess, os, sys, shutil
+ctypes, cffi, mmap, pickle, marshal
+importlib, inspect, gc
+multiprocessing, threading
+```
+
+**Allowed modules:**
+```
+math, json, csv, re, collections
+datetime, typing, dataclasses
+random, statistics, hashlib
+```
+
+**Known bypass risks:**
+- `().__class__.__bases__[0].__subclasses__()` - partial mitigation
+- C extensions with inline asm - use source scanner
+
+### JavaScript Sandbox (lang/javascript/)
+
+**sandbox.js (VM isolation):**
+- Uses Node.js `vm` module
+- Restricted context (no process, eval, Function)
+- Module whitelist/blacklist
+- Timeout protection
+
+**wrapper.js (Runtime patching):**
+- Full Node API available
+- Module blocking at require level
+- FS path restrictions
+- For apps needing npm packages
+
+| Feature | sandbox.js | wrapper.js |
+|---------|:----------:|:----------:|
+| npm packages | ❌ | ✅ |
+| Full Node API | ❌ | ✅ |
+| Isolation strength | Higher | Medium |
+
+### Source Code Scanner (lang/scanner/scanner.py)
+
+Pre-compilation check for dangerous patterns:
+
+| Severity | Patterns | Example |
+|----------|----------|---------|
+| 🔴 Critical | Inline asm | `asm("syscall")` |
+| 🔴 Critical | syscall instruction | `syscall`, `int 0x80` |
+| 🔴 Critical | Custom entry point | `_start()` |
+| 🟠 High | Syscall wrapper | `syscall(SYS_socket)` |
+| 🟠 High | FFI | `ctypes`, `dlopen`, `ffi-napi` |
+| 🟡 Medium | Dangerous functions | `fork`, `socket`, `eval` |
+
+**Supported languages:** C/C++, Python, JavaScript, Rust, Go
+
+### LD_PRELOAD Hook (lang/preload/sandbox_preload.c)
+
+Hooks libc functions for compiled languages:
+
+```bash
+LD_PRELOAD=./sandbox_preload.so \
+  SANDBOX_NO_NETWORK=1 \
+  SANDBOX_NO_FORK=1 \
+  SANDBOX_ALLOW_PATH=/tmp \
+  ./program
+```
+
+**Hooked functions:**
+- Network: `socket`, `connect`, `bind`
+- Process: `fork`, `execve`, `execvp`
+- Filesystem: `open`, `fopen`
+- Anti-bypass: `unsetenv`, `putenv`, `setenv` (LD_PRELOAD)
+
+**⚠️ Bypass methods (known):**
+- Static linking
+- Direct syscall via inline asm
+- ctypes/FFI
+
+## Full-Stack Comparison
+
+### Defense Stack
+
+**Full-Stack Userspace:**
+```
+seccomp-bpf + Landlock + rlimits + language sandbox + source scanner + clean-env
+```
+
+**Full-Stack Lambda:**
+```
+VPC isolation + rlimits + language sandbox + LD_PRELOAD + source scanner + clean-env
+```
+
+### Full-Stack Attack Defense
+
+| Attack | Full-Stack Userspace | Full-Stack Lambda | Bypass Difficulty |
+|--------|:--------------------:|:-----------------:|:-----------------:|
+| Network exfiltration | ✅ seccomp+lang | ✅ VPC+lang+preload | 🔴 Impossible |
+| Reverse shell | ✅ seccomp+lang | ✅ VPC+lang+preload | 🔴 Impossible |
+| Fork/subprocess | ✅ seccomp+lang | ✅ lang+preload | 🔴 Very Hard |
+| Memory/CPU/Disk | ✅ rlimit | ✅ rlimit+Lambda | 🔴 Impossible |
+| Read sensitive files | ✅ Landlock+lang | ✅ lang+preload | 🔴 Very Hard |
+| Write outside /tmp | ✅ Landlock | ✅ Lambda rootfs | 🔴 Impossible |
+| ptrace/debugging | ✅ seccomp | ✅ Firecracker | 🔴 Impossible |
+| Direct syscall (asm) | ✅ seccomp | ⚠️ scanner only | 🟡 Hard |
+| dlopen/FFI | ✅ seccomp+lang | ✅ lang+scanner | 🔴 Very Hard |
+| Sandbox escape | ✅ seccomp | ⚠️ lang+scanner | 🟡 Hard |
+| /proc info leak | ⚠️ partial | ⚠️ partial | 🟢 Medium |
+| VPC lateral movement | N/A | ✅ VPC isolation | 🔴 Impossible |
+| Kernel 0-day | ⚠️ | ⚠️ | 🔴 Requires 0-day |
+
+### Security Levels
+
+| Configuration | Security | Use Case |
+|---------------|:--------:|----------|
+| Full-Stack Userspace | 🟢🟢🟢 | Maximum security, any untrusted code |
+| Full-Stack Lambda | 🟢🟢 | Production student code execution |
+| Lambda + Language sandbox | 🟡 | Basic protection |
+| Lambda only | 🟠 | Not recommended for untrusted code |
+
+### Remaining Attack Surface
+
+| Environment | Remaining Risks |
+|-------------|-----------------|
+| Userspace | Kernel 0-day, timing side-channels |
+| Lambda | Inline asm bypass, kernel 0-day, sandbox escape tricks |
+
+## Lambda Configuration
+
+### Recommended Setup
 
 ```yaml
-# For untrusted code execution
 functions:
   sandbox:
     runtime: python3.12
@@ -367,27 +505,39 @@ functions:
     memorySize: 256
     vpc:
       securityGroupIds:
-        - sg-deny-all-egress  # No outbound traffic
+        - sg-deny-all-egress
       subnetIds:
-        - subnet-private      # No NAT gateway
+        - subnet-private
     role: arn:aws:iam::xxx:role/minimal-lambda-role
 ```
 
-IAM Policy (minimal):
+### Minimal IAM Policy
+
 ```json
 {
   "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
-      "Resource": "arn:aws:logs:*:*:*"
-    }
-  ]
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+    "Resource": "arn:aws:logs:*:*:*"
+  }]
 }
 ```
 
-### Performance Overhead
+### Lambda Built-in Protections
+
+| Protection | Description |
+|------------|-------------|
+| ✅ Read-only rootfs | Cannot write to /var/task, /opt |
+| ✅ Firecracker seccomp | Blocks ptrace, mount, reboot, etc. |
+| ✅ Memory limit | 128MB-10GB per function |
+| ✅ Timeout | Max 15 minutes |
+| ✅ /tmp limit | 512MB ephemeral |
+| ❌ Network | Full outbound by default |
+| ❌ File read | Can read /etc/passwd, /proc |
+| ❌ Subprocess | Can spawn processes |
+
+## Performance Overhead
 
 | Configuration | Python | C/Go | Notes |
 |---------------|:------:|:----:|-------|
@@ -397,6 +547,8 @@ IAM Policy (minimal):
 | Sandlock strict | 6ms | 1ms | +1ms |
 | Python sandbox only | 13ms | N/A | +8ms |
 | Sandlock + Python sandbox | 14ms | N/A | +9ms |
+| Node.js sandbox | 15ms | N/A | +10ms |
+| LD_PRELOAD | 1ms | 1ms | +1ms |
 
 ## Build
 
@@ -420,16 +572,37 @@ sandlock/
 │   ├── sandlock.h      # Common definitions
 │   ├── main.c          # Entry point, CLI
 │   ├── globals.c       # Global state
-│   ├── config.c        # Validation        [NEW]
-│   ├── strict.c        # Seccomp notify    [NEW]
+│   ├── config.c        # Validation
+│   ├── strict.c        # Seccomp notify
 │   ├── seccomp.c       # BPF filtering
 │   ├── landlock.c      # FS sandbox
 │   ├── rlimits.c       # Resource limits
 │   ├── pipes.c         # I/O handling
 │   └── isolation.c     # /tmp management
+├── lang/
+│   ├── python/
+│   │   └── sandbox.py      # Python sandbox
+│   ├── javascript/
+│   │   ├── sandbox.js      # VM isolation
+│   │   └── wrapper.js      # Runtime wrapper
+│   ├── scanner/
+│   │   └── scanner.py      # Source code scanner
+│   └── preload/
+│       ├── sandbox_preload.c   # LD_PRELOAD hook
+│       └── Makefile
+├── tests/
+│   ├── framework.sh        # Test framework
+│   ├── attacks/            # Attack test cases
+│   │   ├── python/         # 21 tests
+│   │   ├── javascript/     # 12 tests
+│   │   ├── shell/          # 10 tests
+│   │   └── c/              # 5 tests
+│   └── results/            # Test reports
 ├── Makefile
 ├── README.md
-├── TECHNICAL.md                            [NEW]
+├── README_zh.md
+├── README_ja.md
+├── TECHNICAL.md
 └── .github/workflows/
     ├── ci.yml
     └── security-tests.yml
@@ -444,6 +617,22 @@ sandlock/
 | 1.2.0 | --isolate-tmp, --cleanup-tmp |
 | 1.3.0 | Log levels (-v/-q) |
 | 1.4.0 | Strict mode, config validation |
+| 1.5.0 | Python sandbox, JavaScript sandbox, source scanner, LD_PRELOAD hook |
+
+## Code Statistics
+
+| Component | Lines |
+|-----------|------:|
+| src/*.c + src/*.h | ~1,500 |
+| lang/python/sandbox.py | ~320 |
+| lang/javascript/sandbox.js | ~350 |
+| lang/javascript/wrapper.js | ~320 |
+| lang/scanner/scanner.py | ~450 |
+| lang/preload/sandbox_preload.c | ~250 |
+| tests/framework.sh | ~500 |
+| Attack test cases | 48 files |
+| Documentation | ~1,000 |
+| **Total** | **~4,700** |
 
 ---
 

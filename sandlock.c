@@ -37,7 +37,39 @@
 #include <sys/syscall.h>
 #include <dirent.h>
 
-#define VERSION "1.2.0"
+#define VERSION "1.3.0"
+
+// Log levels: 0=silent, 1=error, 2=warn, 3=info (default), 4=debug, 5=trace
+enum {
+    LL_SILENT = 0,
+    LL_ERROR  = 1,
+    LL_WARN   = 2,
+    LL_INFO   = 3,
+    LL_DEBUG  = 4,
+    LL_TRACE  = 5
+};
+
+static int log_level = LL_INFO;
+
+#define LOG(level, fmt, ...) do { \
+    if (log_level >= level) { \
+        const char *prefix = ""; \
+        switch(level) { \
+            case LL_ERROR: prefix = "ERROR: "; break; \
+            case LL_WARN:  prefix = "WARN: "; break; \
+            case LL_DEBUG: prefix = "DEBUG: "; break; \
+            case LL_TRACE: prefix = "TRACE: "; break; \
+            default: break; \
+        } \
+        fprintf(stderr, "sandlock: %s" fmt "\n", prefix, ##__VA_ARGS__); \
+    } \
+} while(0)
+
+#define LOG_ERROR(fmt, ...) LOG(LL_ERROR, fmt, ##__VA_ARGS__)
+#define LOG_WARN(fmt, ...)  LOG(LL_WARN, fmt, ##__VA_ARGS__)
+#define LOG_INFO(fmt, ...)  LOG(LL_INFO, fmt, ##__VA_ARGS__)
+#define LOG_DEBUG(fmt, ...) LOG(LL_DEBUG, fmt, ##__VA_ARGS__)
+#define LOG_TRACE(fmt, ...) LOG(LL_TRACE, fmt, ##__VA_ARGS__)
 
 // ============================================================
 // Feature Detection
@@ -104,7 +136,6 @@ typedef struct {
     
     // Execution
     int timeout_seconds;
-    int verbose;
     
 } SandlockConfig;
 
@@ -133,7 +164,6 @@ static SandlockConfig config = {
     .workdir = NULL,
     
     .timeout_seconds = 0,
-    .verbose = 0,
 };
 
 static char isolated_tmp[PATH_MAX] = {0};
@@ -166,19 +196,15 @@ static int landlock_restrict_self(int ruleset_fd, uint32_t flags) {
 
 static int apply_landlock(void) {
     if (!features.has_landlock) {
-        if (config.verbose) {
-            fprintf(stderr, "sandlock: Landlock not available (kernel %d.%d < 5.13)\n",
-                    features.kernel_major, features.kernel_minor);
-        }
+        LOG_DEBUG("Landlock not available (kernel %d.%d < 5.13)",
+                  features.kernel_major, features.kernel_minor);
         return 0;  // Not an error, just unavailable
     }
     
     // Check if Landlock is enabled in kernel
     int abi = landlock_create_ruleset(NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
     if (abi < 0) {
-        if (config.verbose) {
-            fprintf(stderr, "sandlock: Landlock disabled in kernel\n");
-        }
+        LOG_DEBUG("Landlock disabled in kernel%s", "");
         return 0;
     }
     
@@ -197,9 +223,7 @@ static int apply_landlock(void) {
     
     int ruleset_fd = landlock_create_ruleset(&attr, sizeof(attr), 0);
     if (ruleset_fd < 0) {
-        if (config.verbose) {
-            fprintf(stderr, "sandlock: landlock_create_ruleset failed: %s\n", strerror(errno));
-        }
+        LOG_WARN("landlock_create_ruleset failed: %s", strerror(errno));
         return -1;
     }
     
@@ -241,19 +265,15 @@ static int apply_landlock(void) {
     
     // Apply restrictions
     if (landlock_restrict_self(ruleset_fd, 0) != 0) {
-        if (config.verbose) {
-            fprintf(stderr, "sandlock: landlock_restrict_self failed: %s\n", strerror(errno));
-        }
+        LOG_WARN("landlock_restrict_self failed: %s", strerror(errno));
         close(ruleset_fd);
         return -1;
     }
     
     close(ruleset_fd);
     
-    if (config.verbose) {
-        fprintf(stderr, "sandlock: Landlock enabled (ro=%d, rw=%d paths)\n",
-                config.landlock_ro_count, config.landlock_rw_count);
-    }
+    LOG_DEBUG("Landlock enabled (ro=%d, rw=%d paths)",
+              config.landlock_ro_count, config.landlock_rw_count);
     
     return 0;
 }
@@ -526,8 +546,8 @@ static void cleanup_tmp_dir(void) {
     }
     initial_tmp_count = 0;
     
-    if (config.verbose && cleaned > 0) {
-        fprintf(stderr, "sandlock: cleaned %d items from /tmp\n", cleaned);
+    if (cleaned > 0) {
+        LOG_DEBUG("cleaned %d items from /tmp", cleaned);
     }
 }
 
@@ -602,8 +622,11 @@ static void print_usage(const char *prog) {
         "  --cleanup-tmp      Clean /tmp after execution\n"
         "  --workdir DIR      Set working directory\n"
         "\n"
+        "Logging:\n"
+        "  -v, --verbose      Increase verbosity (can repeat: -vv)\n"
+        "  -q, --quiet        Decrease verbosity (can repeat: -qqq)\n"
+        "\n"
         "Other:\n"
-        "  -v, --verbose      Verbose output\n"
         "  --features         Show available features\n"
         "  -h, --help         Show help\n"
         "  --version          Show version\n"
@@ -643,6 +666,7 @@ int main(int argc, char *argv[]) {
         {"isolate-tmp",     no_argument, 0, 'T'},
         {"cleanup-tmp",     no_argument, 0, 'C'},
         {"verbose",         no_argument, 0, 'v'},
+        {"quiet",           no_argument, 0, 'q'},
         {"features",        no_argument, 0, 'Z'},
         {"help",            no_argument, 0, 'h'},
         {"version",         no_argument, 0, 'V'},
@@ -650,7 +674,7 @@ int main(int argc, char *argv[]) {
     };
     
     int opt;
-    while ((opt = getopt_long(argc, argv, "+c:m:f:n:p:t:w:NFDdELR:W:IO:TvhV", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "+c:m:f:n:p:t:w:NFDdELR:W:IO:TvqhV", long_options, NULL)) != -1) {
         switch (opt) {
             case 'c': config.cpu_seconds = atol(optarg); break;
             case 'm': config.memory_mb = atol(optarg); break;
@@ -679,7 +703,8 @@ int main(int argc, char *argv[]) {
             case 'O': config.max_output = atol(optarg); break;
             case 'T': config.isolate_tmp = 1; break;
             case 'C': config.cleanup_tmp = 1; break;
-            case 'v': config.verbose = 1; break;
+            case 'v': log_level++; break;
+            case 'q': log_level--; if (log_level < 0) log_level = 0; break;
             case 'Z': print_features(); return 0;
             case 'V': printf("sandlock v" VERSION "\n"); return 0;
             case 'h': print_usage(argv[0]); return 0;
@@ -742,13 +767,13 @@ int main(int argc, char *argv[]) {
         apply_rlimits();
         
         if (config.use_landlock) {
-            if (apply_landlock() != 0 && config.verbose) {
-                fprintf(stderr, "sandlock: Landlock setup failed\n");
+            if (apply_landlock() != 0) {
+                LOG_WARN("Landlock setup failed%s", "");
             }
         }
         
         if (apply_seccomp() != 0) {
-            fprintf(stderr, "sandlock: seccomp setup failed\n");
+            LOG_ERROR("seccomp setup failed%s", "");
             _exit(1);
         }
         
@@ -756,9 +781,7 @@ int main(int argc, char *argv[]) {
             sanitize_env();
         }
         
-        if (config.verbose) {
-            fprintf(stderr, "sandlock: executing %s\n", argv[optind]);
-        }
+        LOG_DEBUG("executing %s", argv[optind]);
         
         execvp(argv[optind], &argv[optind]);
         perror("sandlock: exec");
@@ -779,9 +802,6 @@ int main(int argc, char *argv[]) {
     
     if (config.cleanup_tmp) {
         cleanup_tmp_dir();
-        if (config.verbose) {
-            fprintf(stderr, "sandlock: cleaned /tmp\n");
-        }
     }
     
     if (WIFEXITED(status)) {
@@ -791,10 +811,10 @@ int main(int argc, char *argv[]) {
     if (WIFSIGNALED(status)) {
         int sig = WTERMSIG(status);
         if (sig == SIGKILL && config.timeout_seconds > 0) {
-            fprintf(stderr, "sandlock: timeout\n");
+            LOG_INFO("timeout%s", "");
             return 124;
         }
-        fprintf(stderr, "sandlock: killed by signal %d\n", sig);
+        LOG_INFO("killed by signal %d", sig);
         return 128 + sig;
     }
     

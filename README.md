@@ -3,6 +3,10 @@
 Lightweight userspace sandbox for Linux. No root required.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/bkmashiro/Sandlock/actions/workflows/ci.yml/badge.svg)](https://github.com/bkmashiro/Sandlock/actions/workflows/ci.yml)
+[![Security Tests](https://github.com/bkmashiro/Sandlock/actions/workflows/security-tests.yml/badge.svg)](https://github.com/bkmashiro/Sandlock/actions/workflows/security-tests.yml)
+
+**[中文文档](README_zh.md)** | **[日本語ドキュメント](README_ja.md)**
 
 ## Features
 
@@ -10,9 +14,30 @@ Lightweight userspace sandbox for Linux. No root required.
 - 📊 **Resource limits** - CPU, memory, file size, open files
 - 🌐 **Network isolation** - Block all socket operations
 - 🧵 **Thread-safe** - Blocks fork while allowing threads
+- 🏔️ **Landlock** - Filesystem sandboxing (kernel 5.13+)
 - ⚡ **Low overhead** - ~1.5ms startup cost
 - 🔧 **Configurable** - Enable/disable each security feature
 - 🚫 **No root required** - Pure userspace implementation
+
+## Attack Defense Matrix
+
+| Attack | Defense | Technology | Test | Option |
+|--------|---------|------------|:----:|--------|
+| **Network exfiltration** | Block socket syscalls | seccomp-bpf | ✅ | `--no-network` |
+| **Fork bomb** | Block clone with CLONE_THREAD=0 | seccomp-bpf | ✅ | `--no-fork` |
+| **Memory bomb** | Limit virtual memory | RLIMIT_AS | ✅ | `--mem MB` |
+| **CPU exhaustion** | Limit CPU time | RLIMIT_CPU | ✅ | `--cpu SEC` |
+| **Disk filling** | Limit file size | RLIMIT_FSIZE | ✅ | `--fsize MB` |
+| **FD exhaustion** | Limit open files | RLIMIT_NOFILE | ✅ | `--nofile N` |
+| **Infinite loop** | Wall-clock timeout | SIGALRM+SIGKILL | ✅ | `--timeout SEC` |
+| **Process debugging** | Block ptrace | seccomp-bpf | ✅ | `--no-dangerous` |
+| **Kernel exploitation** | Block bpf, io_uring | seccomp-bpf | ✅ | `--no-dangerous` |
+| **Container escape** | Block unshare, setns | seccomp-bpf | ✅ | `--no-dangerous` |
+| **Privilege escalation** | NO_NEW_PRIVS | prctl | ✅ | default on |
+| **Environment leak** | Sanitize env vars | clearenv | ✅ | `--clean-env` |
+| **Symlink attacks** | Block symlink/link | seccomp-bpf | ✅ | `--no-dangerous` |
+| **File access** | Path-based restrictions | Landlock | ✅ | `--landlock --ro/--rw` |
+| **Output flooding** | Limit output size | pipe + truncate | ✅ | `--max-output N` |
 
 ## Quick Start
 
@@ -49,30 +74,38 @@ cp sandlock /usr/local/bin/
 sandlock [OPTIONS] -- COMMAND [ARGS...]
 
 Resource Limits:
-  --cpu SEC        CPU time limit in seconds
-  --mem MB         Memory limit in megabytes
-  --fsize MB       Max file size in megabytes
-  --nofile N       Max open file descriptors
-  --nproc N        Max processes (per-user)
-  --timeout SEC    Wall-clock timeout
+  --cpu SEC          CPU time limit in seconds
+  --mem MB           Memory limit in megabytes
+  --fsize MB         Max file size in megabytes
+  --nofile N         Max open file descriptors
+  --nproc N          Max processes (per-user)
+  --timeout SEC      Wall-clock timeout
 
 Security Features:
-  --no-network     Block all network syscalls
-  --no-fork        Block fork/clone (allow threads)
-  --no-dangerous   Block dangerous syscalls (default: on)
+  --no-network       Block all network syscalls
+  --no-fork          Block fork/clone (allow threads)
+  --no-dangerous     Block dangerous syscalls (default: on)
   --allow-dangerous  Disable dangerous syscall blocking
-  --clean-env      Sanitize environment variables
-  --no-new-privs   Set NO_NEW_PRIVS (default: on)
-  --allow-privs    Allow privilege escalation
+  --clean-env        Sanitize environment variables
+
+Landlock (kernel 5.13+):
+  --landlock         Enable Landlock filesystem sandbox
+  --ro PATH          Add read-only path (repeatable)
+  --rw PATH          Add read-write path (repeatable)
+
+I/O Control:
+  --pipe-io          Wrap I/O in pipes
+  --max-output N     Limit output size in bytes
 
 Isolation:
-  --isolate-tmp    Use private /tmp directory
-  --workdir DIR    Set working directory
+  --isolate-tmp      Use private /tmp directory
+  --workdir DIR      Set working directory
 
 Other:
-  -v, --verbose    Verbose output
-  -h, --help       Show help
-  --version        Show version
+  -v, --verbose      Verbose output
+  --features         Show available features
+  -h, --help         Show help
+  --version          Show version
 ```
 
 ## Examples
@@ -86,22 +119,19 @@ sandlock --no-network --no-fork --clean-env \
          -- python3 student_code.py
 ```
 
-### Execute with minimal permissions
+### Filesystem sandbox (Landlock)
 
 ```bash
-# Block everything except basic execution
-sandlock --no-network --no-fork --clean-env --isolate-tmp \
-         -- ./binary
+# Only allow /tmp (rw) and /usr (ro)
+sandlock --landlock --rw /tmp --ro /usr --ro /lib --ro /lib64 \
+         -- python3 -c "open('/etc/passwd')"  # Blocked!
 ```
 
-### Allow specific operations
+### Output limiting
 
 ```bash
-# Only block network
-sandlock --no-network -- ./server
-
-# Only block fork
-sandlock --no-fork -- ./threaded_app
+# Limit output to 1MB
+sandlock --pipe-io --max-output 1048576 -- ./verbose_program
 ```
 
 ## Blocked Syscalls (with --no-dangerous)
@@ -126,9 +156,13 @@ sandlock --no-fork -- ./threaded_app
 │         Untrusted Process              │
 │                                        │
 │  ┌──────────────────────────────────┐  │
+│  │       Landlock (kernel 5.13+)    │  │
+│  │   (filesystem access control)    │  │
+│  └──────────────────────────────────┘  │
+│                                        │
+│  ┌──────────────────────────────────┐  │
 │  │         seccomp-bpf              │  │
 │  │   (syscall filtering layer)      │  │
-│  │                                  │  │
 │  │  • 60+ syscalls blocked          │  │
 │  │  • Network optionally blocked    │  │
 │  │  • Fork optionally blocked       │  │
@@ -137,11 +171,7 @@ sandlock --no-fork -- ./threaded_app
 │  ┌──────────────────────────────────┐  │
 │  │           rlimits                │  │
 │  │   (resource limiting layer)      │  │
-│  │                                  │  │
-│  │  • CPU time                      │  │
-│  │  • Memory (AS)                   │  │
-│  │  • File size                     │  │
-│  │  • Open files                    │  │
+│  │  • CPU, Memory, Files            │  │
 │  └──────────────────────────────────┘  │
 │                                        │
 │  ┌──────────────────────────────────┐  │
@@ -158,10 +188,12 @@ sandlock --no-fork -- ./threaded_app
 | Root required | ❌ | ✅ | ⚠️ | ⚠️ |
 | Overhead | ~1.5ms | ~100ms | ~50ms | ~10ms |
 | Network isolation | ✅ | ✅ | ✅ | ✅ |
-| Filesystem isolation | ⚠️ | ✅ | ✅ | ✅ |
+| Filesystem sandbox | ✅* | ✅ | ✅ | ✅ |
 | Resource limits | ✅ | ✅ | ✅ | ❌ |
 | Syscall filtering | ✅ | ✅ | ✅ | ✅ |
 | Complexity | Low | High | Medium | Medium |
+
+*Landlock requires kernel 5.13+
 
 ## Known Limitations
 
@@ -169,6 +201,7 @@ sandlock --no-fork -- ./threaded_app
 - `RLIMIT_NPROC` is per-user, not per-sandbox
 - Requires `libseccomp` on the system
 - Linux only (uses seccomp-bpf)
+- Landlock requires kernel 5.13+ (graceful fallback on older kernels)
 
 ## Testing
 
@@ -178,6 +211,9 @@ make test
 
 # Or run directly on Linux
 ./test.sh
+
+# Check available features
+./sandlock --features
 ```
 
 ## License
@@ -190,11 +226,7 @@ Contributions welcome! Please open an issue or PR.
 
 ## Related Projects
 
+- [minijail](https://google.github.io/minijail/) - Google's sandboxing library
 - [firejail](https://github.com/netblue30/firejail) - SUID sandbox
 - [bubblewrap](https://github.com/containers/bubblewrap) - Unprivileged sandboxing
 - [nsjail](https://github.com/google/nsjail) - Process isolation with namespaces
-
-## CI Status
-
-[![CI](https://github.com/bkmashiro/Sandlock/actions/workflows/ci.yml/badge.svg)](https://github.com/bkmashiro/Sandlock/actions/workflows/ci.yml)
-[![Security Tests](https://github.com/bkmashiro/Sandlock/actions/workflows/security-tests.yml/badge.svg)](https://github.com/bkmashiro/Sandlock/actions/workflows/security-tests.yml)

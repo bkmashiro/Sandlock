@@ -68,7 +68,7 @@ jobs:
           if ./sandlock --features | grep -q "Landlock: available"; then
             echo "=== Landlock tests ==="
             
-            # 需要授权 /usr (可执行文件) + /lib (库) + /tmp (工作目录)
+            # Need to allow /usr (executables) + /lib (libraries) + /tmp (workspace)
             ./sandlock --landlock --rw /tmp --ro /usr --ro /lib --ro /lib64 \
               -- touch /tmp/test
             echo "✓ touch with landlock"
@@ -77,7 +77,7 @@ jobs:
               -- ls /usr >/dev/null
             echo "✓ ls with landlock"
             
-            # 测试阻断 - cat /etc/passwd 应该失败 (没授权/etc)
+            # Test blocking - cat /etc/passwd should fail (/etc not allowed)
             if ./sandlock --landlock --rw /tmp --ro /usr --ro /lib --ro /lib64 \
                -- cat /etc/passwd 2>/dev/null; then
               echo "✗ /etc should be blocked"

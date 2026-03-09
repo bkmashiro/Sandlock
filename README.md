@@ -318,8 +318,72 @@ functions:
 For network isolation: VPC (no NAT gateway)
 For resource limits: rlimits (works)
 For Python code: lang/python/sandbox.py
-For other languages: Consider EC2/ECS with full Sandlock
+For JavaScript: lang/javascript/wrapper.js
+For compiled langs: LD_PRELOAD + source scanning
 ```
+
+## Language Sandboxes
+
+For Lambda and other environments where kernel-level sandboxing is unavailable.
+
+### Python Sandbox
+
+```bash
+python lang/python/sandbox.py user_code.py --timeout 5 --memory 128
+```
+
+**Blocks:** `socket`, `subprocess`, `os`, `ctypes`, `mmap`, `pickle`
+**Allows:** `math`, `json`, `re`, `collections`, `datetime`
+
+### JavaScript Sandbox
+
+Two options:
+
+```bash
+# VM isolation (stronger, limited API)
+node lang/javascript/sandbox.js user_code.js --timeout 5000
+
+# Runtime wrapper (full Node API, module blocking)
+node lang/javascript/wrapper.js user_code.js
+```
+
+| Feature | sandbox.js (vm) | wrapper.js |
+|---------|:---------------:|:----------:|
+| npm packages | ❌ | ✅ |
+| Full Node API | ❌ | ✅ |
+| Isolation strength | Higher | Medium |
+
+### Source Code Scanner
+
+Pre-compilation check for dangerous patterns:
+
+```bash
+python lang/scanner/scanner.py code.c --json
+```
+
+**Detects:**
+- 🔴 Critical: `asm()`, `syscall`, `int 0x80`, `_start()`
+- 🟠 High: `ctypes`, `dlopen`, `ffi`, `SYS_*`
+- 🟡 Medium: `fork`, `socket`, `eval`
+
+**Supports:** C/C++, Python, JavaScript, Rust, Go
+
+### LD_PRELOAD Hook
+
+For compiled languages when we control compilation:
+
+```bash
+# Build
+cd lang/preload && make
+
+# Use
+LD_PRELOAD=./sandbox_preload.so \
+  SANDBOX_NO_NETWORK=1 \
+  SANDBOX_NO_FORK=1 \
+  ./user_program
+```
+
+⚠️ **Can be bypassed** by inline assembly. Use with source scanning.
 
 ### Attack Defense Matrix by Environment
 
@@ -359,7 +423,9 @@ For other languages: Consider EC2/ECS with full Sandlock
 |-------------|:--------:|----------------|
 | Userspace + Sandlock | 🟢 High | Run any untrusted code |
 | Lambda + Python sandbox | 🟡 Medium | Acceptable for student code |
-| Lambda + VPC (non-Python) | 🟠 Low | Only semi-trusted code |
+| Lambda + JS wrapper | 🟡 Medium | Acceptable for student code |
+| Lambda + LD_PRELOAD + scanner | 🟡 Medium | Compiled code with source check |
+| Lambda + VPC only | 🟠 Low | Only semi-trusted code |
 | Lambda without protection | 🔴 Critical | Never run untrusted code |
 
 ## Testing

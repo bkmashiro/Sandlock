@@ -248,6 +248,79 @@ Sandlock validates configuration at startup and warns about conflicts:
 - Linux only (uses seccomp-bpf)
 - Landlock requires kernel 5.13+ (graceful fallback on older kernels)
 
+## AWS Lambda
+
+> ⚠️ **Sandlock kernel features (seccomp, Landlock) do NOT work on Lambda.**
+
+Lambda's Firecracker microVM pre-applies seccomp filters, blocking additional filter installation.
+
+### What Works on Lambda
+
+| Feature | Status | Notes |
+|---------|:------:|-------|
+| rlimits (CPU/mem/fsize) | ✅ | Resource limits work |
+| `--timeout` | ✅ | SIGALRM works |
+| `--clean-env` | ✅ | Environment sanitization |
+| `--isolate-tmp` | ✅ | /tmp isolation |
+| `lang/python/sandbox.py` | ✅ | Python-level restrictions |
+
+### What Does NOT Work
+
+| Feature | Status | Reason |
+|---------|:------:|--------|
+| seccomp-bpf | ❌ | Firecracker blocks filter installation |
+| `--no-network` | ❌ | Requires seccomp |
+| `--no-fork` | ❌ | Requires seccomp |
+| `--strict` | ❌ | Requires seccomp notify |
+| Landlock | ❌ | Kernel 5.10 < 5.13 |
+
+### Recommended Lambda Setup
+
+**Use VPC isolation for network security:**
+
+```
+┌─────────────────────────────────────┐
+│ VPC (Private Subnet, No NAT)        │
+│                                     │
+│   Lambda ──✗──► Internet            │
+│      │                              │
+│      └──► VPC Endpoint (optional)   │
+│           └──► Specific AWS services│
+└─────────────────────────────────────┘
+```
+
+```yaml
+# serverless.yml example
+functions:
+  sandbox:
+    timeout: 30
+    memorySize: 256
+    vpc:
+      subnetIds:
+        - subnet-private-no-nat
+      securityGroupIds:
+        - sg-no-outbound
+```
+
+### What AWS Features Do NOT Help
+
+| AWS Feature | Why It Doesn't Help |
+|-------------|---------------------|
+| Code Signing | Deployment-time only, not runtime |
+| IAM Roles | Controls AWS API access, not syscalls |
+| CloudWatch | Monitoring only, no prevention |
+| X-Ray | Tracing only |
+| Security Hub | Compliance scanning, not runtime |
+
+### Lambda Security Summary
+
+```
+For network isolation: VPC (no NAT gateway)
+For resource limits: rlimits (works)
+For Python code: lang/python/sandbox.py
+For other languages: Consider EC2/ECS with full Sandlock
+```
+
 ## Testing
 
 ```bash

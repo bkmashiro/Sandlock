@@ -1,0 +1,15 @@
+# Build artifacts
+sandlock
+*.o
+*.a
+
+# Test artifacts
+/tmp/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# macOS
+.DS_Store

@@ -1,0 +1,113 @@
+name: Security Tests
+
+on:
+  # 手动触发
+  workflow_dispatch:
+    inputs:
+      run_bombs:
+        description: 'Run bomb tests (resource intensive)'
+        required: true
+        default: 'false'
+        type: boolean
+  
+  # 每周日凌晨运行
+  schedule:
+    - cron: '0 2 * * 0'
+
+jobs:
+  security-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libseccomp-dev python3
+      
+      - name: Build
+        run: make
+      
+      - name: Show features
+        run: ./sandlock --features
+      
+      - name: Basic security tests
+        run: |
+          echo "=== Network blocking ==="
+          ! ./sandlock --no-network -- python3 -c "import socket; socket.socket()"
+          
+          echo "=== Fork blocking ==="
+          ! ./sandlock --no-fork -- python3 -c "import os; os.fork()"
+          
+          echo "=== Ptrace blocking ==="
+          ! ./sandlock -- python3 -c "import ctypes; ctypes.CDLL(None).ptrace(0,0,0,0)"
+          
+          echo "=== Memory limit ==="
+          ! ./sandlock --mem 16 -- python3 -c "x=[0]*10000000"
+          
+          echo "=== Timeout ==="
+          ! ./sandlock --timeout 2 -- sleep 10
+          
+          echo "=== File size limit ==="
+          ! ./sandlock --fsize 1 -- python3 -c "open('/tmp/x','w').write('x'*2000000)"
+          
+          echo "All basic security tests passed!"
+      
+      - name: Landlock tests (if available)
+        run: |
+          if ./sandlock --features | grep -q "Landlock: available"; then
+            echo "=== Landlock tests ==="
+            ./sandlock --landlock --rw /tmp -- touch /tmp/test
+            ./sandlock --landlock --ro /usr -- ls /usr
+            ! ./sandlock --landlock --rw /tmp -- cat /etc/passwd
+            echo "Landlock tests passed!"
+          else
+            echo "Landlock not available, skipping"
+          fi
+      
+      - name: Bomb tests (manual only)
+        if: ${{ github.event.inputs.run_bombs == 'true' }}
+        run: |
+          echo "=== BOMB TESTS (resource intensive) ==="
+          
+          echo "--- Fork bomb ---"
+          ! timeout 10 ./sandlock --no-fork --timeout 5 -- python3 -c "
+          import os
+          while True:
+              try: os.fork()
+              except: pass
+          "
+          echo "Fork bomb contained ✓"
+          
+          echo "--- Memory bomb ---"
+          ! timeout 10 ./sandlock --mem 64 --timeout 5 -- python3 -c "
+          x = []
+          while True:
+              x.append('x' * 1000000)
+          "
+          echo "Memory bomb contained ✓"
+          
+          echo "--- CPU bomb ---"
+          ! timeout 10 ./sandlock --cpu 2 --timeout 5 -- python3 -c "
+          while True:
+              x = 1+1
+          "
+          echo "CPU bomb contained ✓"
+          
+          echo "--- File bomb ---"
+          ! timeout 10 ./sandlock --fsize 1 --timeout 5 -- python3 -c "
+          with open('/tmp/bomb', 'w') as f:
+              while True:
+                  f.write('x' * 1000000)
+          "
+          echo "File bomb contained ✓"
+          
+          echo "--- FD bomb ---"
+          ! timeout 10 ./sandlock --nofile 20 --timeout 5 -- python3 -c "
+          fds = []
+          for i in range(1000):
+              fds.append(open(f'/tmp/f{i}', 'w'))
+          "
+          echo "FD bomb contained ✓"
+          
+          echo "All bomb tests passed!"

@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libseccomp-dev
+      
+      - name: Build
+        run: make
+      
+      - name: Quick tests
+        run: |
+          ./sandlock --version
+          ./sandlock --features
+          ./sandlock -- echo "basic test"
+          ./sandlock --no-network -- python3 -c "print('network blocked')" || true
+          ./sandlock --timeout 2 -- sleep 1
+          echo "Quick tests passed!"

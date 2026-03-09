@@ -22,42 +22,75 @@ Lightweight userspace sandbox for Linux. No root required.
 
 ## Attack Defense Matrix
 
+### Defense Status by Environment
+
 | Attack | Userspace | Lambda+Py | Lambda+Node | Lambda Only |
 |--------|:---------:|:---------:|:-----------:|:-----------:|
-| **Network exfiltration** | ✅ | ✅ | ✅ | ❌ |
-| **Reverse shell** | ✅ | ✅ | ✅ | ❌ |
-| **Fork bomb** | ✅ | ✅ | ✅ | ⚠️ Lambda limit |
-| **subprocess/exec** | ✅ | ✅ | ✅ | ❌ |
-| **Memory bomb** | ✅ | ✅ | ✅ | ⚠️ Lambda limit |
-| **CPU exhaustion** | ✅ | ✅ | ✅ | ⚠️ Lambda timeout |
-| **Disk filling** | ✅ | ✅ | ✅ | ⚠️ /tmp 512MB |
-| **Infinite loop** | ✅ | ✅ | ✅ | ⚠️ Lambda timeout |
-| **Read /etc/passwd** | ✅ | ✅ | ✅ | ❌ |
-| **Read /proc/self/environ** | ⚠️ | ⚠️ | ⚠️ | ❌ |
-| **Write outside /tmp** | ✅ | ✅ | ✅ | ⚠️ read-only rootfs |
-| **ptrace** | ✅ | ✅ | ✅ | ⚠️ Firecracker |
-| **Direct syscall (asm)** | ✅ | ⚠️ | ⚠️ | ❌ |
-| **mmap exploit** | ✅ | ✅ | ✅ | ❌ |
-| **Environment leak** | ✅ | ✅ | ✅ | ❌ |
-| **Symlink attacks** | ✅ | ✅ | ✅ | ❌ |
-| **dlopen/FFI** | ✅ | ✅ | ✅ | ❌ |
-| **eval/exec (lang)** | N/A | ✅ | ✅ | ❌ |
-| **Sandbox escape (ctypes)** | ✅ | ⚠️ | ⚠️ | N/A |
-| **Lateral movement (VPC)** | N/A | ❌ | ❌ | ❌ |
-| **Credential theft (IAM)** | N/A | ❌ | ❌ | ❌ |
+| Network exfiltration | ✅ | ✅ | ✅ | ❌ |
+| Reverse shell | ✅ | ✅ | ✅ | ❌ |
+| Fork bomb | ✅ | ✅ | ✅ | ⚠️ |
+| subprocess/exec | ✅ | ✅ | ✅ | ❌ |
+| Memory exhaustion | ✅ | ✅ | ✅ | ⚠️ |
+| CPU exhaustion | ✅ | ✅ | ✅ | ⚠️ |
+| Disk filling | ✅ | ✅ | ✅ | ⚠️ |
+| Infinite loop | ✅ | ✅ | ✅ | ⚠️ |
+| Read sensitive files | ✅ | ✅ | ✅ | ❌ |
+| Write outside /tmp | ✅ | ✅ | ✅ | ✅ |
+| ptrace/debugging | ✅ | ✅ | ✅ | ✅ |
+| Symlink attacks | ✅ | ✅ | ✅ | ❌ |
+| dlopen/FFI bypass | ✅ | ✅ | ✅ | ❌ |
+| eval/exec (dynamic) | N/A | ✅ | ✅ | ❌ |
+| Direct syscall (asm) | ✅ | ⚠️ | ⚠️ | ❌ |
+| Sandbox escape | ✅ | ⚠️ | ⚠️ | N/A |
+| /proc info leak | ⚠️ | ⚠️ | ⚠️ | ❌ |
+| VPC lateral movement | N/A | ❌ | ❌ | ❌ |
+| IAM credential theft | N/A | ❌ | ❌ | ❌ |
 
-Legend: ✅ = Defended | ⚠️ = Partial/Bypassable | ❌ = Not defended | N/A = Not applicable
+Legend: ✅ Defended | ⚠️ Partial | ❌ Not defended | N/A Not applicable
 
-### Known Limitations (Lambda + Language Sandboxes)
+### Defense Technologies
 
-| Risk | Description | Mitigation |
-|------|-------------|------------|
-| **Direct syscall** | Inline asm in Python C extensions | Source scanning, no custom C |
-| **Sandbox escape** | `().__class__.__bases__[0].__subclasses__()` | Restricted builtins (partial) |
-| **/proc readable** | `/proc/self/environ`, `/proc/self/maps` | clean-env (partial) |
-| **VPC lateral** | Can scan/attack VPC internal hosts | VPC isolation (no NAT) |
-| **IAM credentials** | AWS_* env vars accessible | Minimal IAM role |
-| **Node.js addons** | Native .node files could bypass | Module whitelist |
+| Attack | Userspace | Lambda+Py/Node | Lambda Only |
+|--------|-----------|----------------|-------------|
+| Network | seccomp `--no-network` | import/module block | ❌ use VPC |
+| Fork bomb | seccomp `--no-fork` | block os.fork/child_process | Lambda concurrency limit |
+| Memory | rlimit `--mem` | rlimit | Lambda memory config |
+| CPU/timeout | rlimit `--cpu` / `--timeout` | rlimit / timeout | Lambda timeout config |
+| Disk | rlimit `--fsize` | rlimit | /tmp 512MB limit |
+| File read | Landlock `--ro` / strict `--allow` | restricted open() / fs patch | ❌ |
+| File write | Landlock `--rw` / strict `--allow` | restricted open() / fs patch | read-only rootfs |
+| ptrace | seccomp `--no-dangerous` | no ctypes/ffi | Firecracker seccomp |
+| Symlink | seccomp `--no-dangerous` | no os module / fs patch | ❌ |
+| FFI | seccomp | blocked imports | ❌ |
+| Direct syscall | seccomp | source scanner (partial) | ❌ |
+| Sandbox escape | seccomp | restricted builtins (partial) | N/A |
+
+### Lambda Built-in Protections
+
+Lambda provides some protections even without Sandlock:
+
+| Protection | Description |
+|------------|-------------|
+| ✅ Read-only rootfs | Cannot write to /var/task, /opt |
+| ✅ Firecracker seccomp | Blocks ptrace, mount, reboot, etc. |
+| ✅ Memory limit | Configured per function (128MB-10GB) |
+| ✅ Timeout | Configured per function (max 15min) |
+| ✅ /tmp limit | 512MB ephemeral storage |
+| ✅ Concurrency limit | Limits parallel executions |
+| ❌ Network | Full outbound access by default |
+| ❌ File read | Can read /etc/passwd, /proc, etc. |
+| ❌ Subprocess | Can spawn processes |
+
+### Known Bypass Risks
+
+| Risk | Applies To | Description | Mitigation |
+|------|------------|-------------|------------|
+| Direct syscall | Lambda+Py/Node | Inline asm in C extensions | Source scanner, no custom C |
+| `__subclasses__` | Lambda+Py | Python sandbox escape | Restricted builtins (partial) |
+| /proc readable | All | `/proc/self/environ`, `/proc/self/maps` | `--clean-env` (partial) |
+| VPC lateral | Lambda | Scan/attack internal hosts | VPC isolation (no NAT) |
+| IAM credentials | Lambda | AWS_* env vars | Minimal IAM role |
+| Native addons | Lambda+Node | .node files bypass | Module whitelist |
 
 ## Quick Start
 

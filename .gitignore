@@ -13,3 +13,7 @@ sandlock
 
 # macOS
 .DS_Store
+
+# Object files
+*.o
+src/*.o

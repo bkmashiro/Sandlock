@@ -24,46 +24,48 @@ Lightweight userspace sandbox for Linux. No root required.
 
 ### Defense Status by Environment
 
-| Attack | Userspace | Lambda+Py | Lambda+Node | Lambda Only |
-|--------|:---------:|:---------:|:-----------:|:-----------:|
-| Network exfiltration | ✅ | ✅ | ✅ | ❌ |
-| Reverse shell | ✅ | ✅ | ✅ | ❌ |
-| Fork bomb | ✅ | ✅ | ✅ | ⚠️ |
-| subprocess/exec | ✅ | ✅ | ✅ | ❌ |
-| Memory exhaustion | ✅ | ✅ | ✅ | ✅ |
-| CPU exhaustion | ✅ | ✅ | ✅ | ✅ |
-| Disk filling | ✅ | ✅ | ✅ | ✅ |
-| Infinite loop | ✅ | ✅ | ✅ | ✅ |
-| Read sensitive files | ✅ | ✅ | ✅ | ❌ |
-| Write outside /tmp | ✅ | ✅ | ✅ | ✅ |
-| ptrace/debugging | ✅ | ✅ | ✅ | ✅ |
-| Symlink attacks | ✅ | ✅ | ✅ | ❌ |
-| dlopen/FFI bypass | ✅ | ✅ | ✅ | ❌ |
-| eval/exec (dynamic) | N/A | ✅ | ✅ | ❌ |
-| Direct syscall (asm) | ✅ | ⚠️ | ⚠️ | ❌ |
-| Sandbox escape | ✅ | ⚠️ | ⚠️ | N/A |
-| /proc info leak | ⚠️ | ⚠️ | ⚠️ | ❌ |
-| VPC lateral movement | N/A | ❌ | ❌ | ❌ |
-| IAM credential theft | N/A | ❌ | ❌ | ❌ |
+| Attack | Userspace | Lambda+Py | Lambda+Node | Lambda+Preload | Lambda Only |
+|--------|:---------:|:---------:|:-----------:|:--------------:|:-----------:|
+| Network exfiltration | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Reverse shell | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Fork bomb | ✅ | ✅ | ✅ | ✅ | ⚠️ |
+| subprocess/exec | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Memory exhaustion | ✅ | ✅ | ✅ | ✅ | ✅ |
+| CPU exhaustion | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Disk filling | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Infinite loop | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Read sensitive files | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Write outside /tmp | ✅ | ✅ | ✅ | ✅ | ✅ |
+| ptrace/debugging | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Symlink attacks | ✅ | ✅ | ✅ | ⚠️ | ❌ |
+| dlopen/FFI bypass | ✅ | ✅ | ✅ | ⚠️ | ❌ |
+| eval/exec (dynamic) | N/A | ✅ | ✅ | N/A | ❌ |
+| Direct syscall (asm) | ✅ | ⚠️ | ⚠️ | ⚠️ | ❌ |
+| Sandbox escape | ✅ | ⚠️ | ⚠️ | N/A | N/A |
+| /proc info leak | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ❌ |
+| VPC lateral movement | N/A | ❌ | ❌ | ❌ | ❌ |
+| IAM credential theft | N/A | ❌ | ❌ | ❌ | ❌ |
 
 Legend: ✅ Defended | ⚠️ Partial | ❌ Not defended | N/A Not applicable
 
+**Lambda+Preload** = LD_PRELOAD + source scanner + dynamic linking (for C/C++/Rust/Go)
+
 ### Defense Technologies
 
-| Attack | Userspace | Lambda+Py/Node | Lambda Only |
-|--------|-----------|----------------|-------------|
-| Network | seccomp `--no-network` | import/module block | ❌ use VPC |
-| Fork bomb | seccomp `--no-fork` | block os.fork/child_process | Lambda concurrency limit |
-| Memory | rlimit `--mem` | rlimit | Lambda memory config |
-| CPU/timeout | rlimit `--cpu` / `--timeout` | rlimit / timeout | Lambda timeout config |
-| Disk | rlimit `--fsize` | rlimit | /tmp 512MB limit |
-| File read | Landlock `--ro` / strict `--allow` | restricted open() / fs patch | ❌ |
-| File write | Landlock `--rw` / strict `--allow` | restricted open() / fs patch | read-only rootfs |
-| ptrace | seccomp `--no-dangerous` | no ctypes/ffi | Firecracker seccomp |
-| Symlink | seccomp `--no-dangerous` | no os module / fs patch | ❌ |
-| FFI | seccomp | blocked imports | ❌ |
-| Direct syscall | seccomp | source scanner (partial) | ❌ |
-| Sandbox escape | seccomp | restricted builtins (partial) | N/A |
+| Attack | Userspace | Lambda+Py/Node | Lambda+Preload | Lambda Only |
+|--------|-----------|----------------|----------------|-------------|
+| Network | seccomp | import/module block | LD_PRELOAD | ❌ use VPC |
+| Fork | seccomp | import/module block | LD_PRELOAD | Lambda limit |
+| Memory | rlimit | rlimit | rlimit | Lambda config |
+| CPU/timeout | rlimit | rlimit | rlimit | Lambda timeout |
+| Disk | rlimit | rlimit | rlimit | /tmp 512MB |
+| File read | Landlock/strict | restricted open() | LD_PRELOAD | ❌ |
+| File write | Landlock/strict | restricted open() | LD_PRELOAD | read-only rootfs |
+| ptrace | seccomp | no ctypes/ffi | Firecracker | Firecracker |
+| Symlink | seccomp | no os module | ⚠️ partial | ❌ |
+| FFI/dlopen | seccomp | blocked imports | source scanner | ❌ |
+| Direct syscall | seccomp | ⚠️ scanner | ⚠️ scanner | ❌ |
+| Sandbox escape | seccomp | ⚠️ partial | N/A | N/A |
 
 ### Lambda Built-in Protections
 

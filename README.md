@@ -94,6 +94,50 @@ Lambda provides some protections even without Sandlock:
 | IAM credentials | Lambda | AWS_* env vars | Minimal IAM role |
 | Native addons | Lambda+Node | .node files bypass | Module whitelist |
 
+### Full-Stack Comparison: Lambda vs Userspace
+
+**Full-Stack Userspace:**
+```
+seccomp-bpf + Landlock + rlimits + language sandbox + source scanner + clean-env
+```
+
+**Full-Stack Lambda:**
+```
+VPC isolation + rlimits + language sandbox + LD_PRELOAD + source scanner + clean-env
+```
+
+| Attack | Full-Stack Userspace | Full-Stack Lambda | Bypass Difficulty |
+|--------|:--------------------:|:-----------------:|:-----------------:|
+| Network exfiltration | ✅ seccomp+lang | ✅ VPC+lang+preload | 🔴 Impossible |
+| Reverse shell | ✅ seccomp+lang | ✅ VPC+lang+preload | 🔴 Impossible |
+| Fork/subprocess | ✅ seccomp+lang | ✅ lang+preload | 🔴 Very Hard |
+| Memory/CPU/Disk | ✅ rlimit | ✅ rlimit+Lambda | 🔴 Impossible |
+| Read sensitive files | ✅ Landlock+lang | ✅ lang+preload | 🔴 Very Hard |
+| Write outside /tmp | ✅ Landlock | ✅ Lambda rootfs | 🔴 Impossible |
+| ptrace/debugging | ✅ seccomp | ✅ Firecracker | 🔴 Impossible |
+| Direct syscall (asm) | ✅ seccomp | ⚠️ scanner only | 🟡 Hard |
+| dlopen/FFI | ✅ seccomp+lang | ✅ lang+scanner | 🔴 Very Hard |
+| Sandbox escape | ✅ seccomp | ⚠️ lang+scanner | 🟡 Hard |
+| /proc info leak | ⚠️ partial | ⚠️ partial | 🟢 Medium |
+| VPC lateral | N/A | ✅ VPC isolation | 🔴 Impossible |
+| Kernel 0-day | ⚠️ | ⚠️ | 🔴 Requires 0-day |
+
+**Security Level Summary:**
+
+| Configuration | Security | Use Case |
+|---------------|:--------:|----------|
+| Full-Stack Userspace | 🟢🟢🟢 | Maximum security, any untrusted code |
+| Full-Stack Lambda | 🟢🟢 | Production student code execution |
+| Lambda + Language only | 🟡 | Basic protection |
+| Lambda only | 🟠 | Not recommended for untrusted code |
+
+**Remaining Attack Surface (Full-Stack):**
+
+| Environment | Remaining Risks |
+|-------------|-----------------|
+| Userspace | Kernel 0-day, timing side-channels |
+| Lambda | Inline asm bypass, kernel 0-day, sandbox escape tricks |
+
 ## Quick Start
 
 ```bash

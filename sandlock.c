@@ -35,8 +35,9 @@
 #include <limits.h>
 #include <linux/landlock.h>
 #include <sys/syscall.h>
+#include <dirent.h>
 
-#define VERSION "1.1.0"
+#define VERSION "1.2.0"
 
 // ============================================================
 // Feature Detection
@@ -98,6 +99,7 @@ typedef struct {
     
     // Isolation
     int isolate_tmp;
+    int cleanup_tmp;      // Clean /tmp after execution
     char *workdir;
     
     // Execution
@@ -127,6 +129,7 @@ static SandlockConfig config = {
     .max_output = 0,
     
     .isolate_tmp = 0,
+    .cleanup_tmp = 0,
     .workdir = NULL,
     
     .timeout_seconds = 0,
@@ -448,6 +451,75 @@ static void cleanup_isolated_tmp(void) {
     }
 }
 
+// ============================================================
+// /tmp Cleanup (for Lambda-like environments)
+// ============================================================
+
+#define MAX_TMP_ENTRIES 4096
+static char *initial_tmp_entries[MAX_TMP_ENTRIES];
+static int initial_tmp_count = 0;
+
+static void record_tmp_entries(void) {
+    DIR *dir = opendir("/tmp");
+    if (!dir) return;
+    
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL && initial_tmp_count < MAX_TMP_ENTRIES) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+        initial_tmp_entries[initial_tmp_count++] = strdup(entry->d_name);
+    }
+    closedir(dir);
+}
+
+static int was_initial_entry(const char *name) {
+    for (int i = 0; i < initial_tmp_count; i++) {
+        if (strcmp(initial_tmp_entries[i], name) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+static void cleanup_tmp_dir(void) {
+    DIR *dir = opendir("/tmp");
+    if (!dir) return;
+    
+    struct dirent *entry;
+    char path[PATH_MAX];
+    
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+        
+        // Skip entries that existed before execution
+        if (was_initial_entry(entry->d_name))
+            continue;
+        
+        // Skip our own isolated_tmp (handled separately)
+        if (isolated_tmp[0] && strstr(entry->d_name, "sandlock_"))
+            continue;
+        
+        snprintf(path, sizeof(path), "/tmp/%s", entry->d_name);
+        
+        struct stat st;
+        if (lstat(path, &st) == 0) {
+            if (S_ISDIR(st.st_mode)) {
+                // Remove directory recursively
+                nftw(path, rm_callback, 64, FTW_DEPTH | FTW_PHYS);
+            } else {
+                unlink(path);
+            }
+        }
+    }
+    closedir(dir);
+    
+    // Free recorded entries
+    for (int i = 0; i < initial_tmp_count; i++) {
+        free(initial_tmp_entries[i]);
+    }
+    initial_tmp_count = 0;
+}
+
 static void setup_isolated_tmp(void) {
     snprintf(isolated_tmp, sizeof(isolated_tmp), 
              "/tmp/sandlock_%d_%ld", getpid(), time(NULL));
@@ -516,6 +588,7 @@ static void print_usage(const char *prog) {
         "\n"
         "Isolation:\n"
         "  --isolate-tmp      Private /tmp directory\n"
+        "  --cleanup-tmp      Clean /tmp after execution\n"
         "  --workdir DIR      Set working directory\n"
         "\n"
         "Other:\n"
@@ -557,6 +630,7 @@ int main(int argc, char *argv[]) {
         {"pipe-io",         no_argument, 0, 'I'},
         {"max-output",      required_argument, 0, 'O'},
         {"isolate-tmp",     no_argument, 0, 'T'},
+        {"cleanup-tmp",     no_argument, 0, 'C'},
         {"verbose",         no_argument, 0, 'v'},
         {"features",        no_argument, 0, 'Z'},
         {"help",            no_argument, 0, 'h'},
@@ -593,6 +667,7 @@ int main(int argc, char *argv[]) {
             case 'I': config.pipe_io = 1; break;
             case 'O': config.max_output = atol(optarg); break;
             case 'T': config.isolate_tmp = 1; break;
+            case 'C': config.cleanup_tmp = 1; break;
             case 'v': config.verbose = 1; break;
             case 'Z': print_features(); return 0;
             case 'V': printf("sandlock v" VERSION "\n"); return 0;
@@ -613,6 +688,10 @@ int main(int argc, char *argv[]) {
     if (config.isolate_tmp) {
         setup_isolated_tmp();
         atexit(cleanup_isolated_tmp);
+    }
+    
+    if (config.cleanup_tmp) {
+        record_tmp_entries();
     }
     
     if (config.pipe_io) {
@@ -686,6 +765,13 @@ int main(int argc, char *argv[]) {
     waitpid(pid, &status, 0);
     alarm(0);
     cleanup_isolated_tmp();
+    
+    if (config.cleanup_tmp) {
+        cleanup_tmp_dir();
+        if (config.verbose) {
+            fprintf(stderr, "sandlock: cleaned /tmp\n");
+        }
+    }
     
     if (WIFEXITED(status)) {
         return WEXITSTATUS(status);

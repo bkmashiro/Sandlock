@@ -1,54 +1,54 @@
 # AWS Lambda Sandbox - TL;DR
 
-## 一句话总结
+## One-Line Summary
 
-**Lambda全栈防护 = VPC隔离 + 语言沙箱 + LD_PRELOAD + 源码扫描 + rlimits → 🟢🟢 生产可用**
-
----
-
-## 能实现的安全 ✅
-
-| 攻击 | 防御技术 | 效果 |
-|------|----------|:----:|
-| 网络外传/反弹Shell | VPC无NAT + 语言沙箱 + LD_PRELOAD | ✅ 完全阻断 |
-| Fork炸弹 | 语言沙箱 + LD_PRELOAD | ✅ 阻断 |
-| 子进程/exec | 语言沙箱 + LD_PRELOAD | ✅ 阻断 |
-| 内存/CPU耗尽 | rlimits + Lambda配置 | ✅ 阻断 |
-| 磁盘填满 | rlimits + /tmp 512MB限制 | ✅ 阻断 |
-| 读敏感文件 | 语言沙箱 restricted open() | ✅ 阻断 |
-| 写/tmp外 | Lambda只读rootfs | ✅ 阻断 |
-| ptrace调试 | Firecracker seccomp | ✅ 阻断 |
-| dlopen/FFI | 语言沙箱 + 源码扫描 | ✅ 阻断 |
-| eval/exec动态执行 | 语言沙箱 restricted builtins | ✅ 阻断 |
+**Lambda Full-Stack = VPC isolation + Language sandbox + LD_PRELOAD + Source scanner + rlimits → 🟢🟢 Production Ready**
 
 ---
 
-## 无法完全实现的安全 ⚠️
+## What We CAN Defend ✅
 
-| 攻击 | 原因 | 缓解措施 |
-|------|------|----------|
-| 直接syscall (内联汇编) | 无seccomp，语言层无法拦截 | 源码扫描检测asm |
-| Python `__subclasses__` 逃逸 | 语言特性无法完全阻断 | restricted builtins部分防护 |
-| /proc信息泄露 | Linux限制无法阻止读取 | clean-env清理敏感环境变量 |
-| VPC内横向移动 | 需AWS层面配置 | Security Groups隔离 |
-| IAM凭证窃取 | AWS_*环境变量 | 最小权限IAM角色 |
-
----
-
-## 可能的攻击路径 🔴
-
-| 攻击 | 条件 | 风险等级 |
-|------|------|:--------:|
-| 内联汇编直接syscall | 绕过源码扫描 | 🟡 需要高级技能 |
-| C扩展内嵌syscall | 使用第三方C扩展 | 🟡 禁用第三方扩展可防 |
-| 时序侧信道 | 多次执行计时分析 | 🟢 低风险 |
-| 内核0day | 利用未知漏洞 | 🔴 无法防御，但概率极低 |
+| Attack | Defense Technology | Result |
+|--------|-------------------|:------:|
+| Network exfiltration / Reverse shell | VPC (no NAT) + Language sandbox + LD_PRELOAD | ✅ Blocked |
+| Fork bomb | Language sandbox + LD_PRELOAD | ✅ Blocked |
+| subprocess / exec | Language sandbox + LD_PRELOAD | ✅ Blocked |
+| Memory / CPU exhaustion | rlimits + Lambda config | ✅ Blocked |
+| Disk filling | rlimits + /tmp 512MB limit | ✅ Blocked |
+| Read sensitive files | Language sandbox restricted open() | ✅ Blocked |
+| Write outside /tmp | Lambda read-only rootfs | ✅ Blocked |
+| ptrace debugging | Firecracker seccomp | ✅ Blocked |
+| dlopen / FFI | Language sandbox + Source scanner | ✅ Blocked |
+| eval / exec (dynamic) | Language sandbox restricted builtins | ✅ Blocked |
 
 ---
 
-## 配置方式
+## What We CANNOT Fully Defend ⚠️
 
-### 1. Lambda函数配置 (serverless.yml)
+| Attack | Reason | Mitigation |
+|--------|--------|------------|
+| Direct syscall (inline asm) | No seccomp, language-level cannot intercept | Source scanner detects asm |
+| Python `__subclasses__` escape | Language feature cannot be fully blocked | Restricted builtins (partial) |
+| /proc info leak | Linux limitation, cannot prevent reads | clean-env removes sensitive vars |
+| VPC lateral movement | Requires AWS-level configuration | Security Groups isolation |
+| IAM credential theft | AWS_* environment variables | Minimal IAM role |
+
+---
+
+## Possible Attack Paths 🔴
+
+| Attack | Condition | Risk Level |
+|--------|-----------|:----------:|
+| Inline asm direct syscall | Bypass source scanner | 🟡 Requires advanced skills |
+| C extension embedded syscall | Using third-party C extensions | 🟡 Block third-party extensions |
+| Timing side-channels | Multiple executions for timing analysis | 🟢 Low risk |
+| Kernel 0-day | Exploit unknown vulnerability | 🔴 Cannot defend, but very rare |
+
+---
+
+## Configuration
+
+### 1. Lambda Function Config (serverless.yml)
 
 ```yaml
 service: sandlock-executor
@@ -64,40 +64,39 @@ functions:
     timeout: 30
     memorySize: 256
     
-    # VPC隔离 (关键!)
+    # VPC isolation (critical!)
     vpc:
       securityGroupIds:
         - !Ref NoEgressSecurityGroup
       subnetIds:
         - !Ref PrivateSubnet
     
-    # 最小权限IAM
+    # Minimal IAM
     role: !GetAtt MinimalLambdaRole.Arn
     
-    # 环境变量
     environment:
       SANDLOCK_TIMEOUT: "5"
       SANDLOCK_MEMORY: "128"
 
 resources:
   Resources:
-    # 安全组: 禁止所有出站
+    # Security Group: deny all egress
     NoEgressSecurityGroup:
       Type: AWS::EC2::SecurityGroup
       Properties:
         GroupDescription: No egress
         VpcId: !Ref VPC
-        SecurityGroupEgress: []  # 空 = 无出站
+        SecurityGroupEgress: []  # Empty = no outbound
     
-    # 私有子网: 无NAT网关
+    # Private subnet: no NAT gateway
     PrivateSubnet:
       Type: AWS::EC2::Subnet
       Properties:
         VpcId: !Ref VPC
         CidrBlock: 10.0.1.0/24
-        # 无路由到NAT/IGW
+        # No route to NAT/IGW
     
-    # 最小IAM角色
+    # Minimal IAM role
     MinimalLambdaRole:
       Type: AWS::IAM::Role
       Properties:
@@ -120,7 +119,7 @@ resources:
                   Resource: '*'
 ```
 
-### 2. Handler代码 (Python)
+### 2. Handler Code (Python)
 
 ```python
 # handler.py
@@ -135,12 +134,12 @@ def run(event, context):
     timeout = int(os.environ.get('SANDLOCK_TIMEOUT', '5'))
     memory = int(os.environ.get('SANDLOCK_MEMORY', '128'))
     
-    # 写入临时文件
+    # Write to temp file
     code_file = '/tmp/user_code.py'
     with open(code_file, 'w') as f:
         f.write(code)
     
-    # 执行沙箱
+    # Execute sandbox
     result = subprocess.run(
         ['python3', SANDBOX_PATH, code_file,
          '--timeout', str(timeout),
@@ -154,7 +153,7 @@ def run(event, context):
     return json.loads(result.stdout)
 ```
 
-### 3. Handler代码 (Node.js)
+### 3. Handler Code (Node.js)
 
 ```javascript
 // handler.js
@@ -188,18 +187,19 @@ exports.run = async (event) => {
 };
 ```
 
-### 4. 编译语言 (C/Go/Rust)
+### 4. Compiled Languages (C/Go/Rust)
 
 ```python
 # handler.py for compiled languages
 import subprocess
+import json
 import os
 
 def run(event, context):
     code = event.get('code', '')
     lang = event.get('language', 'c')
     
-    # 1. 源码扫描
+    # 1. Source code scanning
     scan_result = subprocess.run(
         ['python3', '/var/task/lang/scanner/scanner.py', 
          '--stdin', '--json'],
@@ -211,17 +211,17 @@ def run(event, context):
         return {'success': False, 'error': 'Dangerous code detected', 
                 'findings': scan['findings']}
     
-    # 2. 编译 (强制动态链接)
+    # 2. Compile (force dynamic linking)
     with open('/tmp/code.c', 'w') as f:
         f.write(code)
     
     subprocess.run([
         'gcc', '-o', '/tmp/program', '/tmp/code.c',
-        '-dynamic',  # 强制动态链接
-        '-fPIE', '-pie',  # 位置无关
+        '-dynamic',  # Force dynamic linking
+        '-fPIE', '-pie',  # Position independent
     ], check=True)
     
-    # 3. LD_PRELOAD执行
+    # 3. Execute with LD_PRELOAD
     env = os.environ.copy()
     env['LD_PRELOAD'] = '/var/task/lang/preload/sandbox_preload.so'
     env['SANDBOX_NO_NETWORK'] = '1'
@@ -239,66 +239,66 @@ def run(event, context):
 
 ---
 
-## 建议参数
+## Recommended Parameters
 
-### 资源限制
+### Resource Limits
 
-| 参数 | 学生代码 | 计算任务 | 说明 |
-|------|:--------:|:--------:|------|
-| timeout | 5s | 30s | Lambda + 内部双重超时 |
-| memory | 128MB | 512MB | Lambda配置 |
+| Parameter | Student Code | Compute Task | Notes |
+|-----------|:------------:|:------------:|-------|
+| timeout | 5s | 30s | Lambda + internal double timeout |
+| memory | 128MB | 512MB | Lambda configuration |
 | cpu | 2s | 10s | RLIMIT_CPU |
-| fsize | 10MB | 50MB | 输出文件大小 |
+| fsize | 10MB | 50MB | Output file size |
 
-### 安全配置
+### Security Configuration
 
-| 配置 | 必须 | 建议 | 说明 |
-|------|:----:|:----:|------|
-| VPC无出站 | ✅ | - | 阻断网络攻击 |
-| 最小IAM | ✅ | - | 仅CloudWatch日志 |
-| 语言沙箱 | ✅ | - | Python/Node.js |
-| 源码扫描 | - | ✅ | 编译语言必须 |
-| LD_PRELOAD | - | ✅ | 编译语言额外层 |
-| clean-env | - | ✅ | 清理AWS凭证 |
+| Config | Required | Recommended | Notes |
+|--------|:--------:|:-----------:|-------|
+| VPC no-egress | ✅ | - | Blocks network attacks |
+| Minimal IAM | ✅ | - | CloudWatch logs only |
+| Language sandbox | ✅ | - | Python/Node.js |
+| Source scanner | - | ✅ | Required for compiled langs |
+| LD_PRELOAD | - | ✅ | Extra layer for compiled langs |
+| clean-env | - | ✅ | Remove AWS credentials |
 
 ---
 
-## 快速检查清单
+## Quick Checklist
 
 ```
-□ VPC配置: 私有子网，无NAT网关
-□ 安全组: 出站规则为空
-□ IAM角色: 仅logs:PutLogEvents
-□ Lambda层: 包含lang/目录
-□ 超时: Lambda timeout > 内部timeout
-□ 测试: 尝试curl/socket确认阻断
+□ VPC config: Private subnet, no NAT gateway
+□ Security Group: Empty egress rules
+□ IAM role: Only logs:PutLogEvents
+□ Lambda layer: Contains lang/ directory
+□ Timeout: Lambda timeout > internal timeout
+□ Test: Verify curl/socket is blocked
 ```
 
 ---
 
-## 安全等级总结
+## Security Level Summary
 
-| 配置 | 安全等级 | 说明 |
-|------|:--------:|------|
-| 全部开启 | 🟢🟢 | 生产可用，学生代码执行 |
-| 无VPC | 🟡 | 网络攻击风险 |
-| 无语言沙箱 | 🟠 | 大量攻击面暴露 |
-| 仅Lambda默认 | 🔴 | 不建议运行不信任代码 |
+| Configuration | Security Level | Notes |
+|---------------|:--------------:|-------|
+| Full-stack enabled | 🟢🟢 | Production ready, student code execution |
+| Without VPC | 🟡 | Network attack risk |
+| Without language sandbox | 🟠 | Large attack surface exposed |
+| Lambda defaults only | 🔴 | Not recommended for untrusted code |
 
 ---
 
-## 与Userspace对比
+## Comparison with Userspace
 
-| 能力 | Lambda全栈 | Userspace全栈 |
-|------|:----------:|:-------------:|
-| 网络阻断 | ✅ VPC | ✅ seccomp |
-| 进程阻断 | ✅ 语言+preload | ✅ seccomp |
-| 文件阻断 | ✅ 语言+preload | ✅ Landlock |
-| 直接syscall | ⚠️ 扫描 | ✅ seccomp |
-| 沙箱逃逸 | ⚠️ 部分 | ✅ seccomp |
-| **总体** | 🟢🟢 | 🟢🟢🟢 |
+| Capability | Lambda Full-Stack | Userspace Full-Stack |
+|------------|:-----------------:|:--------------------:|
+| Network blocking | ✅ VPC | ✅ seccomp |
+| Process blocking | ✅ lang+preload | ✅ seccomp |
+| File blocking | ✅ lang+preload | ✅ Landlock |
+| Direct syscall | ⚠️ scanner | ✅ seccomp |
+| Sandbox escape | ⚠️ partial | ✅ seccomp |
+| **Overall** | 🟢🟢 | 🟢🟢🟢 |
 
-**结论:** Lambda全栈接近Userspace安全等级，适合生产使用。
+**Conclusion:** Lambda full-stack approaches Userspace security level, suitable for production use.
 
 ---
 

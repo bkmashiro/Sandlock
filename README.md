@@ -26,15 +26,15 @@ Lightweight userspace sandbox for Linux. No root required.
 |--------|:---------:|:---------:|:-----------:|:-----------:|
 | **Network exfiltration** | ✅ | ✅ | ✅ | ❌ |
 | **Reverse shell** | ✅ | ✅ | ✅ | ❌ |
-| **Fork bomb** | ✅ | ✅ | ✅ | ⚠️ Lambda限制 |
+| **Fork bomb** | ✅ | ✅ | ✅ | ⚠️ Lambda limit |
 | **subprocess/exec** | ✅ | ✅ | ✅ | ❌ |
-| **Memory bomb** | ✅ | ✅ | ✅ | ⚠️ Lambda限制 |
-| **CPU exhaustion** | ✅ | ✅ | ✅ | ⚠️ Lambda超时 |
+| **Memory bomb** | ✅ | ✅ | ✅ | ⚠️ Lambda limit |
+| **CPU exhaustion** | ✅ | ✅ | ✅ | ⚠️ Lambda timeout |
 | **Disk filling** | ✅ | ✅ | ✅ | ⚠️ /tmp 512MB |
-| **Infinite loop** | ✅ | ✅ | ✅ | ⚠️ Lambda超时 |
+| **Infinite loop** | ✅ | ✅ | ✅ | ⚠️ Lambda timeout |
 | **Read /etc/passwd** | ✅ | ✅ | ✅ | ❌ |
 | **Read /proc/self/environ** | ⚠️ | ⚠️ | ⚠️ | ❌ |
-| **Write outside /tmp** | ✅ | ✅ | ✅ | ⚠️ 只读rootfs |
+| **Write outside /tmp** | ✅ | ✅ | ✅ | ⚠️ read-only rootfs |
 | **ptrace** | ✅ | ✅ | ✅ | ⚠️ Firecracker |
 | **Direct syscall (asm)** | ✅ | ⚠️ | ⚠️ | ❌ |
 | **mmap exploit** | ✅ | ✅ | ✅ | ❌ |

@@ -455,11 +455,16 @@ static void cleanup_isolated_tmp(void) {
 // /tmp Cleanup (for Lambda-like environments)
 // ============================================================
 
+// Track initial /tmp entries (whitelist approach - safer)
 #define MAX_TMP_ENTRIES 4096
 static char *initial_tmp_entries[MAX_TMP_ENTRIES];
 static int initial_tmp_count = 0;
+static time_t execution_start_time = 0;
 
-static void record_tmp_entries(void) {
+static void record_execution_start(void) {
+    execution_start_time = time(NULL);
+    
+    // Record existing /tmp entries
     DIR *dir = opendir("/tmp");
     if (!dir) return;
     
@@ -486,17 +491,18 @@ static void cleanup_tmp_dir(void) {
     
     struct dirent *entry;
     char path[PATH_MAX];
+    int cleaned = 0;
     
     while ((entry = readdir(dir)) != NULL) {
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
             continue;
         
-        // Skip entries that existed before execution
-        if (was_initial_entry(entry->d_name))
-            continue;
-        
         // Skip our own isolated_tmp (handled separately)
         if (isolated_tmp[0] && strstr(entry->d_name, "sandlock_"))
+            continue;
+        
+        // WHITELIST: Skip entries that existed before execution
+        if (was_initial_entry(entry->d_name))
             continue;
         
         snprintf(path, sizeof(path), "/tmp/%s", entry->d_name);
@@ -509,6 +515,7 @@ static void cleanup_tmp_dir(void) {
             } else {
                 unlink(path);
             }
+            cleaned++;
         }
     }
     closedir(dir);
@@ -518,6 +525,10 @@ static void cleanup_tmp_dir(void) {
         free(initial_tmp_entries[i]);
     }
     initial_tmp_count = 0;
+    
+    if (config.verbose && cleaned > 0) {
+        fprintf(stderr, "sandlock: cleaned %d items from /tmp\n", cleaned);
+    }
 }
 
 static void setup_isolated_tmp(void) {
@@ -691,7 +702,7 @@ int main(int argc, char *argv[]) {
     }
     
     if (config.cleanup_tmp) {
-        record_tmp_entries();
+        record_execution_start();
     }
     
     if (config.pipe_io) {

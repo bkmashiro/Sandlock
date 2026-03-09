@@ -15,6 +15,7 @@ Lightweight userspace sandbox for Linux. No root required.
 - 🌐 **Network isolation** - Block all socket operations
 - 🧵 **Thread-safe** - Blocks fork while allowing threads
 - 🏔️ **Landlock** - Filesystem sandboxing (kernel 5.13+)
+- 🎯 **Strict mode** - Path-level syscall interception (kernel 5.0+)
 - ⚡ **Low overhead** - ~1.5ms startup cost
 - 🔧 **Configurable** - Enable/disable each security feature
 - 🚫 **No root required** - Pure userspace implementation
@@ -37,6 +38,7 @@ Lightweight userspace sandbox for Linux. No root required.
 | **Environment leak** | Sanitize env vars | clearenv | ✅ | `--clean-env` |
 | **Symlink attacks** | Block symlink/link | seccomp-bpf | ✅ | `--no-dangerous` |
 | **File access** | Path-based restrictions | Landlock | ✅ | `--landlock --ro/--rw` |
+| **File access (strict)** | Syscall interception | seccomp notify | ✅ | `--strict --allow PATH` |
 | **Output flooding** | Limit output size | pipe + truncate | ✅ | `--max-output N` |
 
 ## Quick Start
@@ -93,6 +95,10 @@ Landlock (kernel 5.13+):
   --ro PATH          Add read-only path (repeatable)
   --rw PATH          Add read-write path (repeatable)
 
+Strict Mode (kernel 5.0+):
+  --strict           Enable path-level syscall interception
+  --allow PATH       Allow access to path (repeatable, required with --strict)
+
 I/O Control:
   --pipe-io          Wrap I/O in pipes
   --max-output N     Limit output size in bytes
@@ -101,8 +107,11 @@ Isolation:
   --isolate-tmp      Use private /tmp directory
   --workdir DIR      Set working directory
 
+Logging:
+  -v, --verbose      Increase verbosity (can repeat: -vv)
+  -q, --quiet        Decrease verbosity (-q, -qq, -qqq)
+
 Other:
-  -v, --verbose      Verbose output
   --features         Show available features
   -h, --help         Show help
   --version          Show version
@@ -126,6 +135,23 @@ sandlock --no-network --no-fork --clean-env \
 sandlock --landlock --rw /tmp --ro /usr --ro /lib --ro /lib64 \
          -- python3 -c "open('/etc/passwd')"  # Blocked!
 ```
+
+### Strict mode (path-level control)
+
+```bash
+# Only allow access to /tmp, block everything else
+sandlock --strict --allow /tmp -v -- sh -c "echo test > /tmp/ok.txt"
+# DEBUG: ALLOWED: openat(/tmp/ok.txt)
+
+sandlock --strict --allow /tmp -v -- cat /etc/passwd
+# DEBUG: BLOCKED: openat(/etc/passwd)
+# cat: /etc/passwd: Permission denied
+```
+
+> ⚠️ **Strict mode conflicts:**
+> - Cannot use with `--pipe-io` (deadlock risk)
+> - Requires at least one `--allow PATH`
+> - Redundant with `--landlock` (strict provides stronger isolation)
 
 ### Output limiting
 
@@ -155,6 +181,13 @@ sandlock --pipe-io --max-output 1048576 -- ./verbose_program
 ┌────────────────────────────────────────┐
 │         Untrusted Process              │
 │                                        │
+│  ┌──────────────────────────────────┐  │
+│  │    Strict Mode (kernel 5.0+)     │  │
+│  │  (seccomp notify path control)   │  │
+│  │  • Intercepts openat/execve      │  │
+│  │  • Validates against allowlist   │  │
+│  └──────────────────────────────────┘  │
+│                or                      │
 │  ┌──────────────────────────────────┐  │
 │  │       Landlock (kernel 5.13+)    │  │
 │  │   (filesystem access control)    │  │
@@ -194,6 +227,18 @@ sandlock --pipe-io --max-output 1048576 -- ./verbose_program
 | Complexity | Low | High | Medium | Medium |
 
 *Landlock requires kernel 5.13+
+
+## Option Conflicts
+
+Sandlock validates configuration at startup and warns about conflicts:
+
+| Options | Conflict | Resolution |
+|---------|----------|------------|
+| `--strict` + `--pipe-io` | Deadlock risk | `--pipe-io` disabled |
+| `--strict` without `--allow` | No paths allowed | Error, won't start |
+| `--landlock` + `--strict` | Redundant | Warning (strict stronger) |
+| `--isolate-tmp` + `--cleanup-tmp` | Redundant | Warning (isolate auto-cleans) |
+| `--cpu N` > `--timeout M` | Timeout first | Warning |
 
 ## Known Limitations
 

@@ -27,8 +27,9 @@
 #include <linux/landlock.h>
 #include <sys/syscall.h>
 #include <dirent.h>
+#include <sys/socket.h>
 
-#define VERSION "1.3.0"
+#define VERSION "1.4.0"
 
 // ============================================================
 // Logging
@@ -72,8 +73,9 @@ extern int log_level;
 typedef struct {
     int kernel_major;
     int kernel_minor;
-    int has_landlock;      // kernel >= 5.13
-    int has_memfd_secret;  // kernel >= 5.14
+    int has_landlock;       // kernel >= 5.13
+    int has_memfd_secret;   // kernel >= 5.14
+    int has_seccomp_notify; // kernel >= 5.0
 } SystemFeatures;
 
 extern SystemFeatures features;
@@ -118,6 +120,11 @@ typedef struct {
     // Execution
     int timeout_seconds;
     
+    // Strict mode (seccomp notify)
+    int strict_mode;
+    char *strict_paths[32];
+    int strict_path_count;
+    
 } SandlockConfig;
 
 extern SandlockConfig config;
@@ -128,11 +135,17 @@ extern pid_t child_pid;
 // Module Functions
 // ============================================================
 
+// config.c
+int validate_config(void);
+
 // landlock.c
 int apply_landlock(void);
 
 // seccomp.c
 int apply_seccomp(void);
+
+// strict.c
+int run_strict_mode(char *argv[], int optind);
 
 // rlimits.c
 void apply_rlimits(void);

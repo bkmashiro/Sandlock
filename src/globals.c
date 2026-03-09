@@ -33,6 +33,9 @@ SandlockConfig config = {
     .workdir = NULL,
     
     .timeout_seconds = 0,
+    
+    .strict_mode = 0,
+    .strict_path_count = 0,
 };
 
 char isolated_tmp[PATH_MAX] = {0};
@@ -52,5 +55,9 @@ void detect_features(void) {
         
         features.has_memfd_secret = (features.kernel_major > 5) || 
                                     (features.kernel_major == 5 && features.kernel_minor >= 14);
+        
+        // seccomp notify requires kernel 5.0+
+        features.has_seccomp_notify = (features.kernel_major > 5) || 
+                                      (features.kernel_major == 5 && features.kernel_minor >= 0);
     }
 }

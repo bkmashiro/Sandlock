@@ -57,6 +57,10 @@ static void print_usage(const char *prog) {
         "  --cleanup-tmp      Clean /tmp after execution\n"
         "  --workdir DIR      Set working directory\n"
         "\n"
+        "Strict Mode (kernel 5.0+):\n"
+        "  --strict           Enable path-level syscall filtering\n"
+        "  --allow PATH       Allow access to path (repeatable, required with --strict)\n"
+        "\n"
         "Logging:\n"
         "  -v, --verbose      Increase verbosity (can repeat: -vv)\n"
         "  -q, --quiet        Decrease verbosity (can repeat: -qqq)\n"
@@ -73,6 +77,7 @@ static void print_usage(const char *prog) {
 static void print_features(void) {
     detect_features();
     printf("Kernel: %d.%d\n", features.kernel_major, features.kernel_minor);
+    printf("seccomp notify: %s\n", features.has_seccomp_notify ? "available" : "not available (need 5.0+)");
     printf("Landlock: %s\n", features.has_landlock ? "available" : "not available (need 5.13+)");
     printf("memfd_secret: %s\n", features.has_memfd_secret ? "available" : "not available (need 5.14+)");
 }
@@ -104,6 +109,8 @@ int main(int argc, char *argv[]) {
         {"max-output",      required_argument, 0, 'O'},
         {"isolate-tmp",     no_argument, 0, 'T'},
         {"cleanup-tmp",     no_argument, 0, 'C'},
+        {"strict",          no_argument, 0, 'S'},
+        {"allow",           required_argument, 0, 'A'},
         {"verbose",         no_argument, 0, 'v'},
         {"quiet",           no_argument, 0, 'q'},
         {"features",        no_argument, 0, 'Z'},
@@ -113,7 +120,7 @@ int main(int argc, char *argv[]) {
     };
     
     int opt;
-    while ((opt = getopt_long(argc, argv, "+c:m:f:n:p:t:w:NFDdELR:W:IO:TCvqhV", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "+c:m:f:n:p:t:w:NFDdELR:W:IO:TCSA:vqhV", long_options, NULL)) != -1) {
         switch (opt) {
             case 'c': config.cpu_seconds = atol(optarg); break;
             case 'm': config.memory_mb = atol(optarg); break;
@@ -142,6 +149,12 @@ int main(int argc, char *argv[]) {
             case 'O': config.max_output = atol(optarg); break;
             case 'T': config.isolate_tmp = 1; break;
             case 'C': config.cleanup_tmp = 1; break;
+            case 'S': config.strict_mode = 1; break;
+            case 'A':
+                if (config.strict_path_count < 32) {
+                    config.strict_paths[config.strict_path_count++] = optarg;
+                }
+                break;
             case 'v': log_level++; break;
             case 'q': log_level--; if (log_level < 0) log_level = 0; break;
             case 'Z': print_features(); return 0;
@@ -153,6 +166,11 @@ int main(int argc, char *argv[]) {
     
     if (optind >= argc) {
         fprintf(stderr, "sandlock: no command specified\n");
+        return 1;
+    }
+    
+    // Validate configuration
+    if (validate_config() > 0) {
         return 1;
     }
     
@@ -171,6 +189,11 @@ int main(int argc, char *argv[]) {
     
     if (config.pipe_io) {
         setup_pipes();
+    }
+    
+    // Use strict mode if requested (different execution path)
+    if (config.strict_mode) {
+        return run_strict_mode(argv, optind);
     }
     
     if (config.timeout_seconds > 0) {

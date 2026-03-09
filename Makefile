@@ -2,7 +2,7 @@
 
 CC ?= gcc
 CFLAGS = -O2 -Wall -Wextra -pedantic -std=c11
-LDFLAGS = -lseccomp
+LDFLAGS = -lseccomp -pthread
 
 PREFIX ?= /usr/local
 BINDIR = $(PREFIX)/bin
@@ -11,8 +11,10 @@ TARGET = sandlock
 SRCDIR = src
 SRCS = $(SRCDIR)/main.c \
        $(SRCDIR)/globals.c \
+       $(SRCDIR)/config.c \
        $(SRCDIR)/landlock.c \
        $(SRCDIR)/seccomp.c \
+       $(SRCDIR)/strict.c \
        $(SRCDIR)/rlimits.c \
        $(SRCDIR)/pipes.c \
        $(SRCDIR)/isolation.c

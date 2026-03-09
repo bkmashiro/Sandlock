@@ -300,6 +300,104 @@ enum LogLevel {
 | Shared /tmp | ✅ Mitigated | --isolate-tmp |
 | Symlink attacks | ✅ Blocked | Block symlink* |
 
+## Environment Comparison
+
+### Feature Availability
+
+| Feature | Userspace | Lambda |
+|---------|:---------:|:------:|
+| seccomp-bpf | ✅ | ❌ Firecracker blocks |
+| seccomp notify | ✅ | ❌ |
+| Landlock | ✅ (5.13+) | ❌ (kernel 5.10) |
+| rlimits | ✅ | ✅ |
+| Python sandbox | ✅ | ✅ |
+| VPC isolation | N/A | ✅ |
+
+### Attack Defense by Environment
+
+| Attack Category | Userspace | Lambda+Python | Lambda+Other |
+|-----------------|:---------:|:-------------:|:------------:|
+| **Network** |
+| TCP/UDP/DNS | ✅ seccomp | ⚠️ import hook | ❌ VPC only |
+| Reverse shell | ✅ seccomp | ⚠️ import hook | ❌ VPC only |
+| **Process** |
+| fork/clone | ✅ seccomp | ✅ import hook | ❌ undefended |
+| subprocess | ✅ seccomp | ✅ import hook | ❌ undefended |
+| exec | ✅ seccomp | ✅ import hook | ❌ undefended |
+| **Filesystem** |
+| Read sensitive files | ✅ Landlock/strict | ✅ restricted open | ❌ undefended |
+| Write arbitrary | ✅ Landlock/strict | ✅ restricted open | ❌ undefended |
+| Symlink/hardlink | ✅ seccomp | ✅ no os module | ❌ undefended |
+| **Low-level** |
+| ptrace | ✅ seccomp | ✅ no ctypes | ❌ undefended |
+| Direct syscall | ✅ seccomp | ✅ no ctypes | ❌ undefended |
+| mmap exploit | ✅ seccomp | ✅ no mmap | ❌ undefended |
+| io_uring | ✅ seccomp | ✅ blocked | ❌ undefended |
+| bpf | ✅ seccomp | ✅ blocked | ❌ undefended |
+| **Resources** |
+| CPU exhaustion | ✅ RLIMIT_CPU | ✅ RLIMIT_CPU | ✅ RLIMIT_CPU |
+| Memory bomb | ✅ RLIMIT_AS | ✅ RLIMIT_AS | ✅ RLIMIT_AS |
+| Disk filling | ✅ RLIMIT_FSIZE | ✅ RLIMIT_FSIZE | ✅ RLIMIT_FSIZE |
+| Infinite loop | ✅ timeout | ✅ timeout | ✅ timeout |
+| **Info leak** |
+| Environment vars | ✅ clean-env | ✅ clean-env | ✅ clean-env |
+| /proc | ⚠️ readable | ⚠️ readable | ⚠️ readable |
+
+### Lambda Non-Python: Unmitigated Risks
+
+When running non-Python code on Lambda without kernel-level sandboxing:
+
+| Risk | Attack Vector | Impact | Mitigation |
+|------|---------------|--------|------------|
+| **Data Exfiltration** | `curl`, `wget`, raw sockets | Secrets leaked | VPC (no NAT) |
+| **Reverse Shell** | `bash -i >& /dev/tcp/...` | Full control | VPC (no NAT) |
+| **Credential Theft** | `cat /proc/self/environ` | AWS keys exposed | Minimal IAM role |
+| **Lateral Movement** | Port scanning VPC | Attack other services | Security groups |
+| **Cryptojacking** | Download & run miner | Resource abuse | VPC + short timeout |
+| **Persistence** | Write to /tmp, /dev/shm | Survive between calls | Lambda cleans /tmp |
+
+### Recommended Lambda Configuration
+
+```yaml
+# For untrusted code execution
+functions:
+  sandbox:
+    runtime: python3.12
+    timeout: 30
+    memorySize: 256
+    vpc:
+      securityGroupIds:
+        - sg-deny-all-egress  # No outbound traffic
+      subnetIds:
+        - subnet-private      # No NAT gateway
+    role: arn:aws:iam::xxx:role/minimal-lambda-role
+```
+
+IAM Policy (minimal):
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": "arn:aws:logs:*:*:*"
+    }
+  ]
+}
+```
+
+### Performance Overhead
+
+| Configuration | Python | C/Go | Notes |
+|---------------|:------:|:----:|-------|
+| Baseline (no sandbox) | 5ms | 0ms | - |
+| Sandlock minimal | 6ms | 0ms | +1ms |
+| Sandlock full | 5ms | 0ms | ~0ms |
+| Sandlock strict | 6ms | 1ms | +1ms |
+| Python sandbox only | 13ms | N/A | +8ms |
+| Sandlock + Python sandbox | 14ms | N/A | +9ms |
+
 ## Build
 
 ```bash

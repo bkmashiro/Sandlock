@@ -30,10 +30,10 @@ Lightweight userspace sandbox for Linux. No root required.
 | Reverse shell | ✅ | ✅ | ✅ | ❌ |
 | Fork bomb | ✅ | ✅ | ✅ | ⚠️ |
 | subprocess/exec | ✅ | ✅ | ✅ | ❌ |
-| Memory exhaustion | ✅ | ✅ | ✅ | ⚠️ |
-| CPU exhaustion | ✅ | ✅ | ✅ | ⚠️ |
-| Disk filling | ✅ | ✅ | ✅ | ⚠️ |
-| Infinite loop | ✅ | ✅ | ✅ | ⚠️ |
+| Memory exhaustion | ✅ | ✅ | ✅ | ✅ |
+| CPU exhaustion | ✅ | ✅ | ✅ | ✅ |
+| Disk filling | ✅ | ✅ | ✅ | ✅ |
+| Infinite loop | ✅ | ✅ | ✅ | ✅ |
 | Read sensitive files | ✅ | ✅ | ✅ | ❌ |
 | Write outside /tmp | ✅ | ✅ | ✅ | ✅ |
 | ptrace/debugging | ✅ | ✅ | ✅ | ✅ |

@@ -15,29 +15,149 @@
 - 🌐 **网络隔离** - 阻断所有 socket 操作
 - 🧵 **线程安全** - 阻断 fork 但允许线程
 - 🏔️ **Landlock** - 文件系统沙箱（内核 5.13+）
+- 🎯 **严格模式** - 路径级系统调用拦截（内核 5.0+）
 - ⚡ **低开销** - 约 1.5ms 启动延迟
 - 🔧 **可配置** - 各安全特性可单独启用/禁用
 - 🚫 **无需 root** - 纯用户态实现
 
 ## 攻击防御矩阵
 
-| 攻击类型 | 防御方式 | 技术实现 | 测试 | 选项 |
-|----------|----------|----------|:----:|------|
-| **网络外传** | 阻断 socket 系统调用 | seccomp-bpf | ✅ | `--no-network` |
-| **Fork 炸弹** | 阻断无 CLONE_THREAD 的 clone | seccomp-bpf | ✅ | `--no-fork` |
-| **内存炸弹** | 限制虚拟内存 | RLIMIT_AS | ✅ | `--mem MB` |
-| **CPU 耗尽** | 限制 CPU 时间 | RLIMIT_CPU | ✅ | `--cpu SEC` |
-| **磁盘填满** | 限制文件大小 | RLIMIT_FSIZE | ✅ | `--fsize MB` |
-| **文件描述符耗尽** | 限制打开文件数 | RLIMIT_NOFILE | ✅ | `--nofile N` |
-| **死循环** | 墙钟超时 | SIGALRM+SIGKILL | ✅ | `--timeout SEC` |
-| **进程调试** | 阻断 ptrace | seccomp-bpf | ✅ | `--no-dangerous` |
-| **内核漏洞利用** | 阻断 bpf、io_uring | seccomp-bpf | ✅ | `--no-dangerous` |
-| **容器逃逸** | 阻断 unshare、setns | seccomp-bpf | ✅ | `--no-dangerous` |
-| **提权** | NO_NEW_PRIVS | prctl | ✅ | 默认开启 |
-| **环境变量泄露** | 清理环境变量 | clearenv | ✅ | `--clean-env` |
-| **符号链接攻击** | 阻断 symlink/link | seccomp-bpf | ✅ | `--no-dangerous` |
-| **文件访问控制** | 路径白名单 | Landlock | ✅ | `--landlock --ro/--rw` |
-| **输出洪水** | 限制输出大小 | pipe + 截断 | ✅ | `--max-output N` |
+### 各环境防御状态
+
+| 攻击类型 | 用户态 | Lambda+Py | Lambda+Node | Lambda+Preload | Lambda原生 |
+|----------|:------:|:---------:|:-----------:|:--------------:|:----------:|
+| 网络外传 | ✅ | ✅ | ✅ | ✅ | ❌ |
+| 反弹Shell | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Fork炸弹 | ✅ | ✅ | ✅ | ✅ | ⚠️ |
+| 子进程/exec | ✅ | ✅ | ✅ | ✅ | ❌ |
+| 内存耗尽 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| CPU耗尽 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 磁盘填满 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 死循环 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 读敏感文件 | ✅ | ✅ | ✅ | ✅ | ❌ |
+| 写入/tmp外 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| ptrace调试 | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 符号链接攻击 | ✅ | ✅ | ✅ | ⚠️ | ❌ |
+| dlopen/FFI | ✅ | ✅ | ✅ | ⚠️ | ❌ |
+| eval/exec | N/A | ✅ | ✅ | N/A | ❌ |
+| 直接syscall | ✅ | ⚠️ | ⚠️ | ⚠️ | ❌ |
+| 沙箱逃逸 | ✅ | ⚠️ | ⚠️ | N/A | N/A |
+| /proc泄露 | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ❌ |
+| VPC横向移动 | N/A | ❌ | ❌ | ❌ | ❌ |
+| IAM凭证窃取 | N/A | ❌ | ❌ | ❌ | ❌ |
+
+图例: ✅ 已防御 | ⚠️ 部分 | ❌ 未防御 | N/A 不适用
+
+**Lambda+Preload** = LD_PRELOAD + 源码扫描 + 动态链接（用于 C/C++/Rust/Go）
+
+### 防御技术
+
+| 攻击 | 用户态 | Lambda+Py/Node | Lambda+Preload | Lambda原生 |
+|------|--------|----------------|----------------|------------|
+| 网络 | seccomp | import/模块阻断 | LD_PRELOAD | ❌ 用VPC |
+| Fork | seccomp | import/模块阻断 | LD_PRELOAD | Lambda限制 |
+| 内存 | rlimit | rlimit | rlimit | Lambda配置 |
+| CPU/超时 | rlimit | rlimit | rlimit | Lambda超时 |
+| 磁盘 | rlimit | rlimit | rlimit | /tmp 512MB |
+| 文件读 | Landlock/strict | restricted open() | LD_PRELOAD | ❌ |
+| 文件写 | Landlock/strict | restricted open() | LD_PRELOAD | 只读rootfs |
+| ptrace | seccomp | 无ctypes/ffi | Firecracker | Firecracker |
+| 符号链接 | seccomp | 无os模块 | ⚠️ 部分 | ❌ |
+| FFI/dlopen | seccomp | 阻断import | 源码扫描 | ❌ |
+| 直接syscall | seccomp | ⚠️ 扫描 | ⚠️ 扫描 | ❌ |
+| 沙箱逃逸 | seccomp | ⚠️ 部分 | N/A | N/A |
+
+### Lambda 内置保护
+
+| 保护 | 说明 |
+|------|------|
+| ✅ 只读rootfs | 无法写入 /var/task, /opt |
+| ✅ Firecracker seccomp | 阻断 ptrace, mount, reboot 等 |
+| ✅ 内存限制 | 每函数配置 (128MB-10GB) |
+| ✅ 超时 | 每函数配置 (最长15分钟) |
+| ✅ /tmp限制 | 512MB 临时存储 |
+| ❌ 网络 | 默认完全出站访问 |
+| ❌ 文件读取 | 可读 /etc/passwd, /proc 等 |
+| ❌ 子进程 | 可以创建子进程 |
+
+### 全栈对比: Lambda vs 用户态
+
+**全栈用户态:**
+```
+seccomp-bpf + Landlock + rlimits + 语言沙箱 + 源码扫描 + clean-env
+```
+
+**全栈Lambda:**
+```
+VPC隔离 + rlimits + 语言沙箱 + LD_PRELOAD + 源码扫描 + clean-env
+```
+
+| 攻击 | 全栈用户态 | 全栈Lambda | 绕过难度 |
+|------|:----------:|:----------:|:--------:|
+| 网络外传 | ✅ seccomp+lang | ✅ VPC+lang+preload | 🔴 不可能 |
+| 反弹Shell | ✅ seccomp+lang | ✅ VPC+lang+preload | 🔴 不可能 |
+| Fork/子进程 | ✅ seccomp+lang | ✅ lang+preload | 🔴 极难 |
+| 内存/CPU/磁盘 | ✅ rlimit | ✅ rlimit+Lambda | 🔴 不可能 |
+| 读敏感文件 | ✅ Landlock+lang | ✅ lang+preload | 🔴 极难 |
+| 写入/tmp外 | ✅ Landlock | ✅ Lambda rootfs | 🔴 不可能 |
+| ptrace | ✅ seccomp | ✅ Firecracker | 🔴 不可能 |
+| 直接syscall | ✅ seccomp | ⚠️ 仅扫描 | 🟡 难 |
+| dlopen/FFI | ✅ seccomp+lang | ✅ lang+scanner | 🔴 极难 |
+| 沙箱逃逸 | ✅ seccomp | ⚠️ lang+scanner | 🟡 难 |
+| /proc泄露 | ⚠️ 部分 | ⚠️ 部分 | 🟢 中等 |
+| VPC横向 | N/A | ✅ VPC隔离 | 🔴 不可能 |
+| 内核0day | ⚠️ | ⚠️ | 🔴 需要0day |
+
+**安全等级:**
+
+| 配置 | 安全等级 | 适用场景 |
+|------|:--------:|----------|
+| 全栈用户态 | 🟢🟢🟢 | 最高安全，任意不信任代码 |
+| 全栈Lambda | 🟢🟢 | 生产环境学生代码 |
+| Lambda + 语言沙箱 | 🟡 | 基本防护 |
+| Lambda原生 | 🟠 | 不建议用于不信任代码 |
+
+## 语言沙箱
+
+### Python 沙箱
+
+```bash
+python lang/python/sandbox.py user_code.py --timeout 5 --memory 128
+```
+
+**阻断:** `socket`, `subprocess`, `os`, `ctypes`, `mmap`, `pickle`
+**允许:** `math`, `json`, `re`, `collections`, `datetime`
+
+### JavaScript 沙箱
+
+```bash
+# VM隔离（更强，API受限）
+node lang/javascript/sandbox.js user_code.js --timeout 5000
+
+# 运行时包装（完整Node API，模块阻断）
+node lang/javascript/wrapper.js user_code.js
+```
+
+### 源码扫描器
+
+```bash
+python lang/scanner/scanner.py code.c --json
+```
+
+**检测:** `asm()`, `syscall`, `int 0x80`, `_start()`, `ctypes`, `dlopen`
+
+### LD_PRELOAD Hook
+
+```bash
+cd lang/preload && make
+
+LD_PRELOAD=./sandbox_preload.so \
+  SANDBOX_NO_NETWORK=1 \
+  SANDBOX_NO_FORK=1 \
+  ./user_program
+```
+
+⚠️ 可被内联汇编绕过。配合源码扫描使用。
 
 ## 快速开始
 
@@ -47,186 +167,23 @@ make
 
 # 阻断网络
 ./sandlock --no-network -- curl https://evil.com
-# 错误: 操作不允许
 
 # 限制资源
 ./sandlock --cpu 5 --mem 64 -- python3 heavy_script.py
 
-# 完整沙箱
+# 全沙箱
 ./sandlock --no-network --no-fork --clean-env --cpu 5 --mem 256 -- ./untrusted
 ```
 
 ## 安装
 
 ```bash
-# 从源码编译 (需要 libseccomp-dev)
-sudo apt install libseccomp-dev  # Debian/Ubuntu
+# 从源码编译（需要 libseccomp-dev）
+sudo apt install libseccomp-dev
 make
 sudo make install
-
-# 或直接复制二进制
-cp sandlock /usr/local/bin/
-```
-
-## 使用方法
-
-```
-sandlock [选项] -- 命令 [参数...]
-
-资源限制:
-  --cpu SEC          CPU 时间限制（秒）
-  --mem MB           内存限制（MB）
-  --fsize MB         最大文件大小（MB）
-  --nofile N         最大打开文件数
-  --nproc N          最大进程数（每用户）
-  --timeout SEC      墙钟超时（秒）
-
-安全特性:
-  --no-network       阻断所有网络系统调用
-  --no-fork          阻断 fork/clone（允许线程）
-  --no-dangerous     阻断危险系统调用（默认开启）
-  --allow-dangerous  禁用危险系统调用阻断
-  --clean-env        清理环境变量
-
-Landlock (内核 5.13+):
-  --landlock         启用 Landlock 文件系统沙箱
-  --ro PATH          添加只读路径（可重复）
-  --rw PATH          添加读写路径（可重复）
-
-I/O 控制:
-  --pipe-io          用管道包裹 I/O
-  --max-output N     限制输出大小（字节）
-
-隔离:
-  --isolate-tmp      使用私有 /tmp 目录
-  --workdir DIR      设置工作目录
-
-其他:
-  -v, --verbose      详细输出
-  --features         显示可用特性
-  -h, --help         显示帮助
-  --version          显示版本
-```
-
-## 示例
-
-### 运行不可信代码
-
-```bash
-# 学生代码提交
-sandlock --no-network --no-fork --clean-env \
-         --cpu 5 --mem 256 --timeout 30 \
-         -- python3 student_code.py
-```
-
-### 文件系统沙箱 (Landlock)
-
-```bash
-# 只允许 /tmp (读写) 和 /usr (只读)
-sandlock --landlock --rw /tmp --ro /usr --ro /lib --ro /lib64 \
-         -- python3 -c "open('/etc/passwd')"  # 被阻断！
-```
-
-### 输出限制
-
-```bash
-# 限制输出为 1MB
-sandlock --pipe-io --max-output 1048576 -- ./verbose_program
-```
-
-## 阻断的系统调用 (--no-dangerous)
-
-| 类别 | 系统调用 |
-|------|----------|
-| 调试 | ptrace, process_vm_readv, process_vm_writev |
-| 内核 | bpf, io_uring_*, userfaultfd, perf_event_open |
-| 命名空间 | unshare, setns |
-| 文件系统 | mount, umount2, chroot, pivot_root, symlink, link |
-| 系统 | reboot, kexec_*, init_module, *_module |
-| 监控 | inotify_*, fanotify_* |
-| 密钥 | keyctl, add_key, request_key |
-| 硬件 | ioperm, iopl, modify_ldt |
-| 时间 | settimeofday, clock_settime, adjtimex |
-| 其他 | personality, quotactl, nfsservctl |
-
-## 安全模型
-
-```
-┌────────────────────────────────────────┐
-│           不可信进程                    │
-│                                        │
-│  ┌──────────────────────────────────┐  │
-│  │     Landlock (内核 5.13+)        │  │
-│  │      (文件系统访问控制)           │  │
-│  └──────────────────────────────────┘  │
-│                                        │
-│  ┌──────────────────────────────────┐  │
-│  │         seccomp-bpf              │  │
-│  │       (系统调用过滤层)            │  │
-│  │  • 60+ 系统调用被阻断             │  │
-│  │  • 网络可选阻断                   │  │
-│  │  • Fork 可选阻断                  │  │
-│  └──────────────────────────────────┘  │
-│                                        │
-│  ┌──────────────────────────────────┐  │
-│  │           rlimits                │  │
-│  │        (资源限制层)               │  │
-│  │  • CPU、内存、文件                │  │
-│  └──────────────────────────────────┘  │
-│                                        │
-│  ┌──────────────────────────────────┐  │
-│  │      prctl(NO_NEW_PRIVS)         │  │
-│  │        (提权阻断)                 │  │
-│  └──────────────────────────────────┘  │
-└────────────────────────────────────────┘
-```
-
-## 对比
-
-| 特性 | sandlock | Docker | Firejail | bubblewrap |
-|------|:--------:|:------:|:--------:|:----------:|
-| 需要 root | ❌ | ✅ | ⚠️ | ⚠️ |
-| 开销 | ~1.5ms | ~100ms | ~50ms | ~10ms |
-| 网络隔离 | ✅ | ✅ | ✅ | ✅ |
-| 文件系统沙箱 | ✅* | ✅ | ✅ | ✅ |
-| 资源限制 | ✅ | ✅ | ✅ | ❌ |
-| 系统调用过滤 | ✅ | ✅ | ✅ | ✅ |
-| 复杂度 | 低 | 高 | 中 | 中 |
-
-*Landlock 需要内核 5.13+
-
-## 已知限制
-
-- `/proc` 可读（无 mount namespace 的 Linux 限制）
-- `RLIMIT_NPROC` 是每用户而非每沙箱
-- 需要系统安装 `libseccomp`
-- 仅支持 Linux（使用 seccomp-bpf）
-- Landlock 需要内核 5.13+（旧内核优雅降级）
-
-## 测试
-
-```bash
-# 运行测试套件（需要 Docker）
-make test
-
-# 或直接在 Linux 运行
-./test.sh
-
-# 检查可用特性
-./sandlock --features
 ```
 
 ## 许可证
 
-MIT 许可证 - 见 [LICENSE](LICENSE)
-
-## 贡献
-
-欢迎贡献！请提 issue 或 PR。
-
-## 相关项目
-
-- [minijail](https://google.github.io/minijail/) - Google 沙箱库
-- [firejail](https://github.com/netblue30/firejail) - SUID 沙箱
-- [bubblewrap](https://github.com/containers/bubblewrap) - 非特权沙箱
-- [nsjail](https://github.com/google/nsjail) - 基于命名空间的进程隔离
+MIT License - 见 [LICENSE](LICENSE)

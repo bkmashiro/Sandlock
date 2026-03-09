@@ -22,27 +22,42 @@ Lightweight userspace sandbox for Linux. No root required.
 
 ## Attack Defense Matrix
 
-| Attack | Userspace | Lambda+Py | Lambda+Node | Technology |
-|--------|:---------:|:---------:|:-----------:|------------|
-| **Network exfiltration** | ✅ | ✅ | ✅ | seccomp / import hook / module block |
-| **Fork bomb** | ✅ | ✅ | ✅ | seccomp / no os.fork / no child_process |
-| **subprocess/exec** | ✅ | ✅ | ✅ | seccomp / import hook / module block |
-| **Memory bomb** | ✅ | ✅ | ✅ | RLIMIT_AS |
-| **CPU exhaustion** | ✅ | ✅ | ✅ | RLIMIT_CPU |
-| **Disk filling** | ✅ | ✅ | ✅ | RLIMIT_FSIZE |
-| **FD exhaustion** | ✅ | ✅ | ✅ | RLIMIT_NOFILE |
-| **Infinite loop** | ✅ | ✅ | ✅ | timeout |
-| **Read /etc/passwd** | ✅ | ✅ | ✅ | Landlock / restricted open / fs patch |
-| **Write outside /tmp** | ✅ | ✅ | ✅ | Landlock / restricted open / fs patch |
-| **ptrace** | ✅ | ✅ | ✅ | seccomp / no ctypes / no ffi |
-| **Direct syscall** | ✅ | ✅ | ✅ | seccomp / no ctypes / no ffi |
-| **mmap exploit** | ✅ | ✅ | ✅ | seccomp / no mmap module / no ffi |
-| **Environment leak** | ✅ | ✅ | ✅ | clean-env |
-| **Symlink attacks** | ✅ | ✅ | ✅ | seccomp / no os module / fs patch |
-| **dlopen/FFI** | ✅ | ✅ | ✅ | seccomp / blocked / blocked |
-| **eval/exec** | N/A | ✅ | ✅ | restricted builtins / blocked |
+| Attack | Userspace | Lambda+Py | Lambda+Node | Lambda Only |
+|--------|:---------:|:---------:|:-----------:|:-----------:|
+| **Network exfiltration** | ✅ | ✅ | ✅ | ❌ |
+| **Reverse shell** | ✅ | ✅ | ✅ | ❌ |
+| **Fork bomb** | ✅ | ✅ | ✅ | ⚠️ Lambda限制 |
+| **subprocess/exec** | ✅ | ✅ | ✅ | ❌ |
+| **Memory bomb** | ✅ | ✅ | ✅ | ⚠️ Lambda限制 |
+| **CPU exhaustion** | ✅ | ✅ | ✅ | ⚠️ Lambda超时 |
+| **Disk filling** | ✅ | ✅ | ✅ | ⚠️ /tmp 512MB |
+| **Infinite loop** | ✅ | ✅ | ✅ | ⚠️ Lambda超时 |
+| **Read /etc/passwd** | ✅ | ✅ | ✅ | ❌ |
+| **Read /proc/self/environ** | ⚠️ | ⚠️ | ⚠️ | ❌ |
+| **Write outside /tmp** | ✅ | ✅ | ✅ | ⚠️ 只读rootfs |
+| **ptrace** | ✅ | ✅ | ✅ | ⚠️ Firecracker |
+| **Direct syscall (asm)** | ✅ | ⚠️ | ⚠️ | ❌ |
+| **mmap exploit** | ✅ | ✅ | ✅ | ❌ |
+| **Environment leak** | ✅ | ✅ | ✅ | ❌ |
+| **Symlink attacks** | ✅ | ✅ | ✅ | ❌ |
+| **dlopen/FFI** | ✅ | ✅ | ✅ | ❌ |
+| **eval/exec (lang)** | N/A | ✅ | ✅ | ❌ |
+| **Sandbox escape (ctypes)** | ✅ | ⚠️ | ⚠️ | N/A |
+| **Lateral movement (VPC)** | N/A | ❌ | ❌ | ❌ |
+| **Credential theft (IAM)** | N/A | ❌ | ❌ | ❌ |
 
-Legend: ✅ = Defended, ⚠️ = Partial, ❌ = Not defended
+Legend: ✅ = Defended | ⚠️ = Partial/Bypassable | ❌ = Not defended | N/A = Not applicable
+
+### Known Limitations (Lambda + Language Sandboxes)
+
+| Risk | Description | Mitigation |
+|------|-------------|------------|
+| **Direct syscall** | Inline asm in Python C extensions | Source scanning, no custom C |
+| **Sandbox escape** | `().__class__.__bases__[0].__subclasses__()` | Restricted builtins (partial) |
+| **/proc readable** | `/proc/self/environ`, `/proc/self/maps` | clean-env (partial) |
+| **VPC lateral** | Can scan/attack VPC internal hosts | VPC isolation (no NAT) |
+| **IAM credentials** | AWS_* env vars accessible | Minimal IAM role |
+| **Node.js addons** | Native .node files could bypass | Module whitelist |
 
 ## Quick Start
 

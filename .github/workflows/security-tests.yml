@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'sandlock.c'    # 主程序变化才跑
+      - 'sandlock.c'
       - 'Makefile'
   
   pull_request:
@@ -13,7 +13,6 @@ on:
       - 'sandlock.c'
       - 'Makefile'
 
-  # 保留手动触发（可选跳过bomb）
   workflow_dispatch:
     inputs:
       skip_bombs:
@@ -25,7 +24,7 @@ on:
 jobs:
   security-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 10  # 整个job最多10分钟
+    timeout-minutes: 10
     
     steps:
       - uses: actions/checkout@v4
@@ -68,17 +67,30 @@ jobs:
         run: |
           if ./sandlock --features | grep -q "Landlock: available"; then
             echo "=== Landlock tests ==="
-            ./sandlock --landlock --rw /tmp -- touch /tmp/test
-            ./sandlock --landlock --ro /usr -- ls /usr
-            ! ./sandlock --landlock --rw /tmp -- cat /etc/passwd 2>/dev/null
+            
+            # 需要授权 /usr (可执行文件) + /lib (库) + /tmp (工作目录)
+            ./sandlock --landlock --rw /tmp --ro /usr --ro /lib --ro /lib64 \
+              -- touch /tmp/test
+            echo "✓ touch with landlock"
+            
+            ./sandlock --landlock --ro /usr --ro /lib --ro /lib64 \
+              -- ls /usr >/dev/null
+            echo "✓ ls with landlock"
+            
+            # 测试阻断 - cat /etc/passwd 应该失败 (没授权/etc)
+            if ./sandlock --landlock --rw /tmp --ro /usr --ro /lib --ro /lib64 \
+               -- cat /etc/passwd 2>/dev/null; then
+              echo "✗ /etc should be blocked"
+              exit 1
+            else
+              echo "✓ /etc blocked as expected"
+            fi
+            
             echo "Landlock tests passed!"
           else
             echo "Landlock not available on this runner, skipping"
           fi
       
-      # Bomb测试 - 每个都有双重保护:
-      # 1. sandlock内部timeout/limit
-      # 2. 外部timeout命令
       - name: Bomb tests
         if: ${{ github.event.inputs.skip_bombs != 'true' }}
         run: |

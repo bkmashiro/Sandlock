@@ -22,24 +22,27 @@ Lightweight userspace sandbox for Linux. No root required.
 
 ## Attack Defense Matrix
 
-| Attack | Defense | Technology | Test | Option |
-|--------|---------|------------|:----:|--------|
-| **Network exfiltration** | Block socket syscalls | seccomp-bpf | ✅ | `--no-network` |
-| **Fork bomb** | Block clone with CLONE_THREAD=0 | seccomp-bpf | ✅ | `--no-fork` |
-| **Memory bomb** | Limit virtual memory | RLIMIT_AS | ✅ | `--mem MB` |
-| **CPU exhaustion** | Limit CPU time | RLIMIT_CPU | ✅ | `--cpu SEC` |
-| **Disk filling** | Limit file size | RLIMIT_FSIZE | ✅ | `--fsize MB` |
-| **FD exhaustion** | Limit open files | RLIMIT_NOFILE | ✅ | `--nofile N` |
-| **Infinite loop** | Wall-clock timeout | SIGALRM+SIGKILL | ✅ | `--timeout SEC` |
-| **Process debugging** | Block ptrace | seccomp-bpf | ✅ | `--no-dangerous` |
-| **Kernel exploitation** | Block bpf, io_uring | seccomp-bpf | ✅ | `--no-dangerous` |
-| **Container escape** | Block unshare, setns | seccomp-bpf | ✅ | `--no-dangerous` |
-| **Privilege escalation** | NO_NEW_PRIVS | prctl | ✅ | default on |
-| **Environment leak** | Sanitize env vars | clearenv | ✅ | `--clean-env` |
-| **Symlink attacks** | Block symlink/link | seccomp-bpf | ✅ | `--no-dangerous` |
-| **File access** | Path-based restrictions | Landlock | ✅ | `--landlock --ro/--rw` |
-| **File access (strict)** | Syscall interception | seccomp notify | ✅ | `--strict --allow PATH` |
-| **Output flooding** | Limit output size | pipe + truncate | ✅ | `--max-output N` |
+| Attack | Userspace | Lambda+Py | Lambda+Node | Technology |
+|--------|:---------:|:---------:|:-----------:|------------|
+| **Network exfiltration** | ✅ | ✅ | ✅ | seccomp / import hook / module block |
+| **Fork bomb** | ✅ | ✅ | ✅ | seccomp / no os.fork / no child_process |
+| **subprocess/exec** | ✅ | ✅ | ✅ | seccomp / import hook / module block |
+| **Memory bomb** | ✅ | ✅ | ✅ | RLIMIT_AS |
+| **CPU exhaustion** | ✅ | ✅ | ✅ | RLIMIT_CPU |
+| **Disk filling** | ✅ | ✅ | ✅ | RLIMIT_FSIZE |
+| **FD exhaustion** | ✅ | ✅ | ✅ | RLIMIT_NOFILE |
+| **Infinite loop** | ✅ | ✅ | ✅ | timeout |
+| **Read /etc/passwd** | ✅ | ✅ | ✅ | Landlock / restricted open / fs patch |
+| **Write outside /tmp** | ✅ | ✅ | ✅ | Landlock / restricted open / fs patch |
+| **ptrace** | ✅ | ✅ | ✅ | seccomp / no ctypes / no ffi |
+| **Direct syscall** | ✅ | ✅ | ✅ | seccomp / no ctypes / no ffi |
+| **mmap exploit** | ✅ | ✅ | ✅ | seccomp / no mmap module / no ffi |
+| **Environment leak** | ✅ | ✅ | ✅ | clean-env |
+| **Symlink attacks** | ✅ | ✅ | ✅ | seccomp / no os module / fs patch |
+| **dlopen/FFI** | ✅ | ✅ | ✅ | seccomp / blocked / blocked |
+| **eval/exec** | N/A | ✅ | ✅ | restricted builtins / blocked |
+
+Legend: ✅ = Defended, ⚠️ = Partial, ❌ = Not defended
 
 ## Quick Start
 

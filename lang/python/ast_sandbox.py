@@ -73,6 +73,7 @@ ALLOWED_IMPORTS: Set[str] = {
     'math', 'cmath', 'decimal', 'fractions', 'random', 'statistics',
     'json', 'csv', 're', 'string',
     'collections', 'heapq', 'bisect', 'array',
+    'queue', 'graphlib',
     'itertools', 'functools', 'operator',
     'datetime', 'time', 'calendar',
     'typing', 'types', 'copy', 'pprint',

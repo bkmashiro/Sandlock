@@ -90,6 +90,7 @@ ALLOWED_MODULES = {
     # Data
     'json', 'csv', 're', 'string', 'textwrap',
     'collections', 'heapq', 'bisect', 'array',
+    'queue', 'graphlib',
     'itertools', 'functools', 'operator',
     
     # Date/Time

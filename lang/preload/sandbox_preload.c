@@ -146,23 +146,27 @@ int execvp(const char *file, char *const argv[]) {
 static int path_allowed(const char *path) {
     if (!allow_path) return 1;  // No restriction
     
-    // Always allow /tmp
-    if (strncmp(path, "/tmp", 4) == 0) return 1;
-    
+    // Always allow /tmp (with boundary check)
+    if (strncmp(path, "/tmp/", 5) == 0 || strcmp(path, "/tmp") == 0) return 1;
+
     // Always allow common system paths (read)
-    if (strncmp(path, "/lib", 4) == 0) return 1;
-    if (strncmp(path, "/usr/lib", 8) == 0) return 1;
+    if (strncmp(path, "/lib/", 5) == 0 || strncmp(path, "/lib64/", 7) == 0) return 1;
+    if (strncmp(path, "/usr/lib/", 9) == 0) return 1;
     if (strncmp(path, "/etc/ld", 7) == 0) return 1;
-    if (strncmp(path, "/dev/null", 9) == 0) return 1;
-    if (strncmp(path, "/dev/zero", 9) == 0) return 1;
-    if (strncmp(path, "/dev/urandom", 12) == 0) return 1;
-    if (strncmp(path, "/proc/self", 10) == 0) return 1;
+    if (strcmp(path, "/dev/null") == 0) return 1;
+    if (strcmp(path, "/dev/zero") == 0) return 1;
+    if (strcmp(path, "/dev/urandom") == 0) return 1;
+    if (strcmp(path, "/dev/random") == 0) return 1;
+    if (strncmp(path, "/proc/self/", 11) == 0) return 1;
     
-    // Check allowed path
+    // Check allowed path (with boundary check)
     size_t len = strlen(allow_path);
     if (strncmp(path, allow_path, len) == 0) {
-        // Path starts with allowed prefix
-        return 1;
+        // Ensure it's a proper path prefix, not just a string prefix
+        // e.g., allow_path="/tmp" should match "/tmp/foo" but not "/tmp_evil/foo"
+        if (path[len] == '/' || path[len] == '\0') {
+            return 1;
+        }
     }
     
     return 0;

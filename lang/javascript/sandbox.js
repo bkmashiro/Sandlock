@@ -50,9 +50,13 @@ class RestrictedFS {
         this.workdir = path.resolve(workdir);
     }
     
+    _isUnder(resolved, prefix) {
+        return resolved === prefix || resolved.startsWith(prefix + '/');
+    }
+
     _checkPath(p) {
         const resolved = path.resolve(this.workdir, p);
-        if (!resolved.startsWith(this.workdir) && !resolved.startsWith('/tmp')) {
+        if (!this._isUnder(resolved, this.workdir) && !this._isUnder(resolved, '/tmp')) {
             throw new Error(`Access denied: ${p} (only ${this.workdir} allowed)`);
         }
         return resolved;
@@ -64,7 +68,7 @@ class RestrictedFS {
     
     writeFileSync(p, data, options) {
         const resolved = this._checkPath(p);
-        if (!resolved.startsWith('/tmp')) {
+        if (!this._isUnder(resolved, '/tmp')) {
             throw new Error(`Write access denied: ${p}`);
         }
         return fs.writeFileSync(resolved, data, options);
@@ -89,15 +93,15 @@ class RestrictedFS {
     
     mkdirSync(p, options) {
         const resolved = this._checkPath(p);
-        if (!resolved.startsWith('/tmp')) {
+        if (!this._isUnder(resolved, '/tmp')) {
             throw new Error(`Write access denied: ${p}`);
         }
         return fs.mkdirSync(resolved, options);
     }
-    
+
     unlinkSync(p) {
         const resolved = this._checkPath(p);
-        if (!resolved.startsWith('/tmp')) {
+        if (!this._isUnder(resolved, '/tmp')) {
             throw new Error(`Delete access denied: ${p}`);
         }
         return fs.unlinkSync(resolved);
@@ -124,7 +128,8 @@ function createRestrictedRequire(workdir) {
                 join: path.join,
                 resolve: (...args) => {
                     const resolved = path.resolve(...args);
-                    if (!resolved.startsWith('/tmp') && !resolved.startsWith(workdir)) {
+                    const isUnder = (p, prefix) => p === prefix || p.startsWith(prefix + '/');
+                    if (!isUnder(resolved, '/tmp') && !isUnder(resolved, workdir)) {
                         throw new Error(`Path access denied: ${resolved}`);
                     }
                     return resolved;

@@ -145,21 +145,26 @@ class RestrictedOpen:
         self.workdir = os.path.abspath(workdir)
         self._original = builtins.open
     
+    @staticmethod
+    def _is_under(path, prefix):
+        """Check if path is under prefix (proper boundary check)."""
+        return path == prefix or path.startswith(prefix + os.sep)
+
     def __call__(self, path, mode='r', *args, **kwargs):
         # Resolve absolute path
         if not os.path.isabs(path):
             path = os.path.join(self.workdir, path)
         path = os.path.abspath(path)
-        
+
         # Check if path is within allowed directory
-        if not path.startswith(self.workdir):
+        if not self._is_under(path, self.workdir):
             raise PermissionError(f"Access denied: {path} (only {self.workdir} allowed)")
-        
+
         # Block write to anything outside /tmp
         if 'w' in mode or 'a' in mode or '+' in mode:
-            if not path.startswith('/tmp'):
+            if not self._is_under(path, '/tmp'):
                 raise PermissionError(f"Write access denied: {path}")
-        
+
         return self._original(path, mode, *args, **kwargs)
 
 

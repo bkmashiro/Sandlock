@@ -199,6 +199,8 @@ main()
   │   └─ Child:
   │       ├─ setsid(), setpgid()
   │       ├─ child_setup_pipes()
+  │       ├─ redirect_stdin_file()  (if --stdin-file)
+  │       ├─ redirect_stdout_file() (if --stdout-file)
   │       ├─ chdir(workdir)
   │       ├─ prctl(NO_NEW_PRIVS)
   │       ├─ apply_rlimits()
@@ -207,10 +209,13 @@ main()
   │       ├─ sanitize_env()      (if --clean-env)
   │       └─ execvp()
   └─ Parent:
+      ├─ gettimeofday(wall_start)
       ├─ parent_handle_pipes()
-      ├─ waitpid()
+      ├─ wait4() → rusage
+      ├─ gettimeofday(wall_end)
       ├─ cleanup_isolated_tmp()
       ├─ cleanup_tmp_dir()
+      ├─ output_stats()         (if --output-stats)
       └─ return exit_code
 ```
 

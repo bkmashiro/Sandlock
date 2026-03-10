@@ -65,6 +65,11 @@ static void print_usage(const char *prog) {
         "  -v, --verbose      Increase verbosity (can repeat: -vv)\n"
         "  -q, --quiet        Decrease verbosity (can repeat: -qqq)\n"
         "\n"
+        "OJ / Judge:\n"
+        "  --output-stats     Output JSON resource stats to stderr\n"
+        "  --stdin-file PATH  Redirect stdin from file\n"
+        "  --stdout-file PATH Redirect stdout to file\n"
+        "\n"
         "Other:\n"
         "  --features         Show available features\n"
         "  -h, --help         Show help\n"
@@ -111,6 +116,9 @@ int main(int argc, char *argv[]) {
         {"cleanup-tmp",     no_argument, 0, 'C'},
         {"strict",          no_argument, 0, 'S'},
         {"allow",           required_argument, 0, 'A'},
+        {"output-stats",    no_argument, 0, 'J'},
+        {"stdin-file",      required_argument, 0, 'i'},
+        {"stdout-file",     required_argument, 0, 'o'},
         {"verbose",         no_argument, 0, 'v'},
         {"quiet",           no_argument, 0, 'q'},
         {"features",        no_argument, 0, 'Z'},
@@ -120,7 +128,7 @@ int main(int argc, char *argv[]) {
     };
     
     int opt;
-    while ((opt = getopt_long(argc, argv, "+c:m:f:n:p:t:w:NFDdELR:W:IO:TCSA:vqhV", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "+c:m:f:n:p:t:w:NFDdELR:W:IO:TCSA:Ji:o:vqhV", long_options, NULL)) != -1) {
         switch (opt) {
             case 'c': config.cpu_seconds = atol(optarg); break;
             case 'm': config.memory_mb = atol(optarg); break;
@@ -155,6 +163,9 @@ int main(int argc, char *argv[]) {
                     config.strict_paths[config.strict_path_count++] = optarg;
                 }
                 break;
+            case 'J': config.output_stats = 1; break;
+            case 'i': config.stdin_file = optarg; break;
+            case 'o': config.stdout_file = optarg; break;
             case 'v': log_level++; break;
             case 'q': log_level--; if (log_level < 0) log_level = 0; break;
             case 'Z': print_features(); return 0;
@@ -214,7 +225,27 @@ int main(int argc, char *argv[]) {
         if (config.pipe_io) {
             child_setup_pipes();
         }
-        
+
+        // File-based I/O redirection (OJ mode)
+        if (config.stdin_file) {
+            int fd = open(config.stdin_file, O_RDONLY);
+            if (fd < 0) {
+                perror("sandlock: open stdin-file");
+                _exit(1);
+            }
+            dup2(fd, STDIN_FILENO);
+            close(fd);
+        }
+        if (config.stdout_file) {
+            int fd = open(config.stdout_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fd < 0) {
+                perror("sandlock: open stdout-file");
+                _exit(1);
+            }
+            dup2(fd, STDOUT_FILENO);
+            close(fd);
+        }
+
         if (config.workdir) {
             chdir(config.workdir);
         } else if (config.isolate_tmp && isolated_tmp[0]) {
@@ -252,33 +283,52 @@ int main(int argc, char *argv[]) {
     
     // Parent
     child_pid = pid;
-    
+
+    struct timeval wall_start, wall_end;
+    gettimeofday(&wall_start, NULL);
+
     if (config.pipe_io) {
         parent_handle_pipes();
     }
-    
+
     int status;
-    waitpid(pid, &status, 0);
+    struct rusage rusage;
+    wait4(pid, &status, 0, &rusage);
+    gettimeofday(&wall_end, NULL);
     alarm(0);
     cleanup_isolated_tmp();
-    
+
     if (config.cleanup_tmp) {
         cleanup_tmp_dir();
     }
-    
+
+    int exit_code = 1;
+    int term_signal = 0;
+
     if (WIFEXITED(status)) {
-        return WEXITSTATUS(status);
-    }
-    
-    if (WIFSIGNALED(status)) {
-        int sig = WTERMSIG(status);
-        if (sig == SIGKILL && config.timeout_seconds > 0) {
+        exit_code = WEXITSTATUS(status);
+    } else if (WIFSIGNALED(status)) {
+        term_signal = WTERMSIG(status);
+        if (term_signal == SIGKILL && config.timeout_seconds > 0) {
             LOG_INFO("timeout%s", "");
-            return 124;
+            exit_code = 124;
+        } else {
+            LOG_INFO("killed by signal %d", term_signal);
+            exit_code = 128 + term_signal;
         }
-        LOG_INFO("killed by signal %d", sig);
-        return 128 + sig;
     }
-    
-    return 1;
+
+    if (config.output_stats) {
+        long time_ms = (rusage.ru_utime.tv_sec + rusage.ru_stime.tv_sec) * 1000
+                     + (rusage.ru_utime.tv_usec + rusage.ru_stime.tv_usec) / 1000;
+        long memory_kb = rusage.ru_maxrss;  // Already in KB on Linux
+        long wall_ms = (wall_end.tv_sec - wall_start.tv_sec) * 1000
+                     + (wall_end.tv_usec - wall_start.tv_usec) / 1000;
+        fprintf(stderr,
+            "{\"time_ms\":%ld,\"memory_kb\":%ld,\"wall_ms\":%ld,"
+            "\"exit_code\":%d,\"signal\":%d}\n",
+            time_ms, memory_kb, wall_ms, exit_code, term_signal);
+    }
+
+    return exit_code;
 }

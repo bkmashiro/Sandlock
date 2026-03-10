@@ -36,6 +36,10 @@ SandlockConfig config = {
     
     .strict_mode = 0,
     .strict_path_count = 0,
+
+    .output_stats = 0,
+    .stdin_file = NULL,
+    .stdout_file = NULL,
 };
 
 char isolated_tmp[PATH_MAX] = {0};

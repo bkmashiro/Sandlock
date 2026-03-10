@@ -13,6 +13,7 @@
 #include <sys/wait.h>
 #include <sys/prctl.h>
 #include <sys/resource.h>
+#include <sys/time.h>
 #include <sys/stat.h>
 #include <sys/utsname.h>
 #include <signal.h>
@@ -119,12 +120,17 @@ typedef struct {
     
     // Execution
     int timeout_seconds;
-    
+
     // Strict mode (seccomp notify)
     int strict_mode;
     char *strict_paths[32];
     int strict_path_count;
-    
+
+    // OJ features
+    int output_stats;
+    char *stdin_file;
+    char *stdout_file;
+
 } SandlockConfig;
 
 extern SandlockConfig config;

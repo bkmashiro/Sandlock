@@ -38,7 +38,7 @@
 #include <sys/syscall.h>
 #include <dirent.h>
 
-#define VERSION "1.4.0"
+#define VERSION "1.5.0"
 
 // Log levels: 0=silent, 1=error, 2=warn, 3=info (default), 4=debug, 5=trace
 enum {

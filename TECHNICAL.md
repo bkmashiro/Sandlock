@@ -1,4 +1,4 @@
-# Sandlock v1.4.0 Technical Documentation
+# Sandlock v1.5.0 Technical Documentation
 
 ## Architecture Overview
 
@@ -190,7 +190,7 @@ When `--pipe-io` enabled:
 main()
   ├─ detect_features()
   ├─ parse_options()
-  ├─ validate_config()     ← NEW in v1.4.0
+  ├─ validate_config()
   ├─ setup_signals()
   ├─ setup_isolated_tmp()  (if --isolate-tmp)
   ├─ record_tmp_entries()  (if --cleanup-tmp)
@@ -617,7 +617,7 @@ sandlock/
 | 1.2.0 | --isolate-tmp, --cleanup-tmp |
 | 1.3.0 | Log levels (-v/-q) |
 | 1.4.0 | Strict mode, config validation |
-| 1.5.0 | Python sandbox, JavaScript sandbox, source scanner, LD_PRELOAD hook |
+| 1.5.0 | OJ compatibility: --output-stats, --stdin-file, --stdout-file, seccomp fixes |
 
 ## Code Statistics
 

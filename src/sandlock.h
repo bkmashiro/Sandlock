@@ -30,7 +30,7 @@
 #include <dirent.h>
 #include <sys/socket.h>
 
-#define VERSION "1.4.0"
+#define VERSION "1.5.0"
 
 // ============================================================
 // Logging

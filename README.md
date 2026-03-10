@@ -204,6 +204,11 @@ Isolation:
   --isolate-tmp      Use private /tmp directory
   --workdir DIR      Set working directory
 
+OJ / Judge:
+  --output-stats     Output JSON resource stats to stderr
+  --stdin-file PATH  Redirect stdin from file
+  --stdout-file PATH Redirect stdout to file
+
 Logging:
   -v, --verbose      Increase verbosity (can repeat: -vv)
   -q, --quiet        Decrease verbosity (-q, -qq, -qqq)
@@ -215,6 +220,18 @@ Other:
 ```
 
 ## Examples
+
+### OJ / Online Judge
+
+```bash
+# Run solution with file I/O and resource stats
+sandlock --cpu 2 --mem 256 --timeout 5 --fsize 64 \
+         --no-network --clean-env \
+         --stdin-file input.txt --stdout-file output.txt \
+         --output-stats -q \
+         -- ./solution
+# stderr: {"time_ms":15,"memory_kb":2048,"wall_ms":18,"exit_code":0,"signal":0}
+```
 
 ### Run untrusted code
 

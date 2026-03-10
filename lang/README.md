@@ -45,7 +45,7 @@ python3 lang/python/sandbox.py code.py --json
 ```
 math, cmath, decimal, fractions, random, statistics
 json, csv, re, string, textwrap
-collections, heapq, bisect, array
+collections, heapq, bisect, array, queue, graphlib
 itertools, functools, operator
 datetime, time, calendar
 typing, types, copy, pprint

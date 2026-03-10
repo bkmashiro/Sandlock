@@ -153,7 +153,7 @@ def _sandlock_blocked(name):
 def _sandlock_check_open(path, mode='r', *args, **kwargs):
     # Simple path check without os.path
     path_str = str(path)
-    if path_str.startswith('/tmp') or path_str.startswith('./') or not path_str.startswith('/'):
+    if path_str == '/tmp' or path_str.startswith('/tmp/') or path_str.startswith('./') or not path_str.startswith('/'):
         return _original_open(path, mode, *args, **kwargs)
     raise SecurityError(f"File access denied: {path}")
 

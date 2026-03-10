@@ -1,5 +1,5 @@
 #!/bin/bash
-# Sandlock Test Suite v1.1.0
+# Sandlock Test Suite v1.5.0
 
 set -e
 
@@ -54,7 +54,7 @@ test_output() {
 }
 
 echo "═══════════════════════════════════════════════════════════"
-echo "                 Sandlock Test Suite v1.1.0                 "
+echo "                 Sandlock Test Suite v1.5.0                 "
 echo "═══════════════════════════════════════════════════════════"
 echo ""
 

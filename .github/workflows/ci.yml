@@ -26,3 +26,6 @@ jobs:
           ./sandlock --no-network -- python3 -c "print('network blocked')" || true
           ./sandlock --timeout 2 -- sleep 1
           echo "Quick tests passed!"
+
+      - name: OJ compatibility tests
+        run: bash tests/oj_compat_test.sh

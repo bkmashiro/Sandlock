@@ -358,9 +358,10 @@ static int apply_seccomp(void) {
         BLOCK(fanotify_init); BLOCK(fanotify_mark);
         BLOCK(personality); BLOCK(quotactl); BLOCK(nfsservctl);
         
+        // Block kill(-1, *) to prevent signaling all processes.
+        // tkill/tgkill allowed: glibc needs them for raise()/abort()/pthread_cancel().
         seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), SCMP_SYS(kill),
             1, SCMP_A0(SCMP_CMP_EQ, -1));
-        BLOCK(tkill); BLOCK(tgkill);
     }
     
     #undef BLOCK

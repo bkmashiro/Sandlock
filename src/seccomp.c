@@ -62,10 +62,12 @@ int apply_seccomp(void) {
         // Misc
         BLOCK(personality); BLOCK(quotactl); BLOCK(nfsservctl);
         
-        // Kill restrictions
+        // Kill restrictions: block kill(-1, *) to prevent signaling all processes.
+        // tkill/tgkill are allowed because glibc uses them internally for
+        // raise(), abort(), pthread_cancel(). The child is already isolated
+        // via setsid()+setpgid() so it can only signal its own process group.
         seccomp_rule_add(ctx, SCMP_ACT_ERRNO(EPERM), SCMP_SYS(kill),
             1, SCMP_A0(SCMP_CMP_EQ, -1));
-        BLOCK(tkill); BLOCK(tgkill);
     }
     
     #undef BLOCK

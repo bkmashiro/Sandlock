@@ -79,10 +79,19 @@ int validate_config(void) {
     // ========================================
     // Workdir conflicts
     // ========================================
-    
+
     if (config.workdir && config.isolate_tmp) {
         LOG_DEBUG("--workdir overrides --isolate-tmp directory%s", "");
     }
-    
+
+    // ========================================
+    // I/O conflicts
+    // ========================================
+
+    if (config.pipe_io && (config.stdin_file || config.stdout_file)) {
+        LOG_WARN("--pipe-io with --stdin-file/--stdout-file is redundant, preferring file redirection%s", "");
+        config.pipe_io = 0;
+    }
+
     return errors;
 }

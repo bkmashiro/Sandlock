@@ -37,21 +37,25 @@ const CONFIG = {
 // Path Checking
 // ============================================================
 
+function isUnder(filePath, prefix) {
+    return filePath === prefix || filePath.startsWith(prefix + '/');
+}
+
 function isPathAllowed(p, forWrite = false) {
     if (!p) return false;
-    
+
     const resolved = path.resolve(p);
-    
+
     // Always allow /tmp for both read and write
-    if (resolved.startsWith('/tmp')) return true;
-    
+    if (isUnder(resolved, '/tmp')) return true;
+
     // Check allowed paths
     for (const allowed of CONFIG.allowedPaths) {
-        if (resolved.startsWith(path.resolve(allowed))) {
+        if (isUnder(resolved, path.resolve(allowed))) {
             return true;
         }
     }
-    
+
     // For read operations, allow common system paths
     if (!forWrite) {
         const readAllowed = [
@@ -59,11 +63,11 @@ function isPathAllowed(p, forWrite = false) {
             '/etc/ssl', '/etc/localtime',
             '/dev/null', '/dev/urandom', '/dev/zero',
         ];
-        for (const p of readAllowed) {
-            if (resolved.startsWith(p)) return true;
+        for (const prefix of readAllowed) {
+            if (isUnder(resolved, prefix)) return true;
         }
     }
-    
+
     return false;
 }
 

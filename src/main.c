@@ -228,22 +228,16 @@ int main(int argc, char *argv[]) {
 
         // File-based I/O redirection (OJ mode)
         if (config.stdin_file) {
-            int fd = open(config.stdin_file, O_RDONLY);
-            if (fd < 0) {
-                perror("sandlock: open stdin-file");
+            if (freopen(config.stdin_file, "r", stdin) == NULL) {
+                perror("sandlock: freopen stdin-file");
                 _exit(1);
             }
-            dup2(fd, STDIN_FILENO);
-            close(fd);
         }
         if (config.stdout_file) {
-            int fd = open(config.stdout_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-            if (fd < 0) {
-                perror("sandlock: open stdout-file");
+            if (freopen(config.stdout_file, "w", stdout) == NULL) {
+                perror("sandlock: freopen stdout-file");
                 _exit(1);
             }
-            dup2(fd, STDOUT_FILENO);
-            close(fd);
         }
 
         if (config.workdir) {
@@ -293,7 +287,12 @@ int main(int argc, char *argv[]) {
 
     int status;
     struct rusage rusage;
-    wait4(pid, &status, 0, &rusage);
+    memset(&rusage, 0, sizeof(rusage));
+    waitpid(pid, &status, 0);
+    if (getrusage(RUSAGE_CHILDREN, &rusage) != 0) {
+        perror("sandlock: getrusage");
+        memset(&rusage, 0, sizeof(rusage));
+    }
     gettimeofday(&wall_end, NULL);
     alarm(0);
     cleanup_isolated_tmp();
